@@ -20,6 +20,7 @@ from tqdm import tqdm
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
+sys.path.append(str(Path(__file__).parent.parent)) 
 import importlib
 import config
 from tools import reformat
