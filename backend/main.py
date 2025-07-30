@@ -190,7 +190,21 @@ class SubtitleExtractor:
         print(config.interface_config['Main']['FinishGenerateSub'], f"{round(time.time() - start_time, 2)}s")
         self.update_progress(ocr=100, frame_extract=100)
         self.isFinished = True
-        # 删除缓存文件
+        
+        # 添加生成JSON文件的调用
+        if config.GENERATE_JSON:
+            # 确保raw.txt文件存在
+            if not os.path.exists(self.raw_subtitle_path):
+                # 确保目录存在
+                os.makedirs(os.path.dirname(self.raw_subtitle_path), exist_ok=True)
+                # 创建一个空的raw.txt文件
+                with open(self.raw_subtitle_path, 'w', encoding='utf-8') as f:
+                    pass
+                print(f"创建空的原始字幕文件: {self.raw_subtitle_path}")
+            
+            self.generate_subtitle_json()
+            
+        # 删除缓存文件（移到生成JSON之后）
         self.empty_cache()
         self.lock.release()
         if config.GENERATE_TXT:
@@ -739,12 +753,14 @@ class SubtitleExtractor:
         self._concat_content_with_same_frameno()
         with open(self.raw_subtitle_path, mode='r', encoding='utf-8') as r:
             lines = r.readlines()
-        RawInfo = namedtuple('RawInfo', 'no content')
+        RawInfo = namedtuple('RawInfo', 'no content coordinate')
         content_list = []
         for line in lines:
-            frame_no = line.split('\t')[0]
-            content = line.split('\t')[2]
-            content_list.append(RawInfo(frame_no, content))
+            parts = line.split('\t')
+            frame_no = parts[0]
+            coordinate = parts[1]
+            content = parts[2]
+            content_list.append(RawInfo(frame_no, content, coordinate))
         # 去重后的字幕列表
         unique_subtitle_list = []
         idx_i = 0
@@ -769,8 +785,8 @@ class SubtitleExtractor:
                     similar_content_strip_list = [item.content.replace(' ', '') for item in similar_list]
                     index, _ = max(enumerate(similar_content_strip_list), key=lambda x: len(x[1]))
 
-                    # 添加进列表
-                    unique_subtitle_list.append((start_frame, end_frame, similar_list[index].content))
+                    # 添加进列表，包含坐标信息
+                    unique_subtitle_list.append((start_frame, end_frame, similar_list[index].content, similar_list[index].coordinate))
                     idx_i = idx_j + 1
                     break
                 else:
@@ -1007,6 +1023,155 @@ class SubtitleExtractor:
         with open(output_path, 'w') as f:
             for sub in subs:
                 f.write(f'{sub.text}\n')
+
+    def generate_subtitle_json(self):
+        """
+        生成JSON格式的字幕文件，包含字幕区域坐标信息
+        """
+        # 首先检查原始字幕文件是否存在
+        if not os.path.exists(self.raw_subtitle_path):
+            print(f"警告：原始字幕文件不存在: {self.raw_subtitle_path}")
+            # 从已生成的SRT文件中获取字幕数据
+            srt_filename = os.path.join(os.path.splitext(self.video_path)[0] + '.srt')
+            if os.path.exists(srt_filename):
+                print(f"从已生成的SRT文件中提取字幕信息: {srt_filename}")
+                subs = pysrt.open(srt_filename, encoding='utf-8')
+                json_filename = os.path.join(os.path.splitext(self.video_path)[0] + '.json')
+                subtitle_data = []
+                
+                for sub in subs:
+                    subtitle_entry = {
+                        "index": sub.index,
+                        "start_time": str(sub.start),
+                        "end_time": str(sub.end),
+                        "text": sub.text.strip()
+                    }
+                    subtitle_data.append(subtitle_entry)
+                
+                # 写入JSON文件
+                with open(json_filename, mode='w', encoding='utf-8') as f:
+                    import json
+                    json.dump(subtitle_data, f, ensure_ascii=False, indent=2)
+                
+                print(f"JSON字幕文件已生成: {json_filename}")
+                return
+            else:
+                print(f"错误：SRT文件也不存在: {srt_filename}")
+                return
+        
+        if not self.use_vsf:
+            subtitle_content = self._remove_duplicate_subtitle()
+            json_filename = os.path.join(os.path.splitext(self.video_path)[0] + '.json')
+            
+            subtitle_data = []
+            for index, content in enumerate(subtitle_content):
+                line_code = index + 1
+                frame_start = self._frame_to_timecode(int(content[0]))
+                
+                # 比较起始帧号与结束帧号， 如果字幕持续时间不足1秒，则将显示时间设为1s
+                if abs(int(content[1]) - int(content[0])) < self.fps:
+                    frame_end = self._frame_to_timecode(int(int(content[0]) + self.fps))
+                else:
+                    frame_end = self._frame_to_timecode(int(content[1]))
+                
+                frame_content = content[2]
+                
+                # 解析坐标信息
+                coordinate_str = content[3].strip('()')
+                try:
+                    xmin, xmax, ymin, ymax = map(int, coordinate_str.split(', '))
+                    
+                    subtitle_entry = {
+                        "index": line_code,
+                        "start_time": frame_start,
+                        "end_time": frame_end,
+                        "text": frame_content.strip(),
+                        "position": {
+                            "left": xmin,
+                            "right": xmax,
+                            "top": ymin,
+                            "bottom": ymax
+                        }
+                    }
+                    subtitle_data.append(subtitle_entry)
+                except (ValueError, IndexError):
+                    # 如果坐标解析失败，添加没有位置信息的条目
+                    subtitle_entry = {
+                        "index": line_code,
+                        "start_time": frame_start,
+                        "end_time": frame_end,
+                        "text": frame_content.strip()
+                    }
+                    subtitle_data.append(subtitle_entry)
+            
+            # 写入JSON文件
+            with open(json_filename, mode='w', encoding='utf-8') as f:
+                import json
+                json.dump(subtitle_data, f, ensure_ascii=False, indent=2)
+            
+            print(f"JSON字幕文件已生成: {json_filename}")
+        else:
+            # VSF模式下的JSON生成
+            if not os.path.exists(self.vsf_subtitle):
+                print(f"警告：VSF字幕文件不存在: {self.vsf_subtitle}")
+                return
+                
+            subs = pysrt.open(self.vsf_subtitle)
+            subtitle_content = self._remove_duplicate_subtitle()
+            subtitle_content_start_map = {int(a[0]): a for a in subtitle_content}
+            
+            json_filename = os.path.join(os.path.splitext(self.video_path)[0] + '.json')
+            subtitle_data = []
+            
+            index = 1
+            for sub in subs:
+                found = sub.start.no in subtitle_content_start_map
+                if found or not config.DELETE_EMPTY_TIMESTAMP:
+                    if found:
+                        subtitle_content_line = subtitle_content_start_map[sub.start.no]
+                        text = subtitle_content_line[2].strip()
+                        
+                        # 解析坐标信息
+                        coordinate_str = subtitle_content_line[3].strip('()')
+                        try:
+                            xmin, xmax, ymin, ymax = map(int, coordinate_str.split(', '))
+                            
+                            subtitle_entry = {
+                                "index": index,
+                                "start_time": str(sub.start),
+                                "end_time": str(sub.end),
+                                "text": text,
+                                "position": {
+                                    "left": xmin,
+                                    "right": xmax,
+                                    "top": ymin,
+                                    "bottom": ymax
+                                }
+                            }
+                        except (ValueError, IndexError):
+                            subtitle_entry = {
+                                "index": index,
+                                "start_time": str(sub.start),
+                                "end_time": str(sub.end),
+                                "text": text
+                            }
+                    else:
+                        subtitle_entry = {
+                            "index": index,
+                            "start_time": str(sub.start),
+                            "end_time": str(sub.end),
+                            "text": ""
+                        }
+                    
+                    subtitle_data.append(subtitle_entry)
+                    index += 1
+            
+            # 写入JSON文件
+            with open(json_filename, mode='w', encoding='utf-8') as f:
+                import json
+                json.dump(subtitle_data, f, ensure_ascii=False, indent=2)
+            
+            print(f"JSON字幕文件已生成: {json_filename}")
 
 
 if __name__ == '__main__':
