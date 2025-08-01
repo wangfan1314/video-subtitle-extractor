@@ -156,7 +156,7 @@ DEVANAGARI_LANG = [
 ]
 OTHER_LANG = [
     'ch', 'japan', 'korean', 'en', 'ta', 'kn', 'te', 'ka',
-    'chinese_cht',
+    'chinese_cht', 'thai',
 ]
 MULTI_LANG = LATIN_LANG + ARABIC_LANG + CYRILLIC_LANG + DEVANAGARI_LANG + \
              OTHER_LANG
@@ -166,6 +166,25 @@ DET_MODEL_FAST_PATH = os.path.join(DET_MODEL_BASE, MODEL_VERSION, 'ch_det_fast')
 
 # 如果设置了识别文本语言类型，则设置为对应的语言
 if REC_CHAR_TYPE in MULTI_LANG:
+    # 添加泰语相关设置，确保在REC_CHAR_TYPE为'thai'时能正确处理
+    # 在适当的位置添加以下代码（在处理REC_CHAR_TYPE的地方）
+
+    # 泰语使用EasyOCR处理，不需要PaddleOCR的模型
+    # 如果REC_CHAR_TYPE是thai，则跳过PaddleOCR模型路径的检查
+    if REC_CHAR_TYPE == 'thai':
+        print(f"{interface_config['Main']['RecSubLang']}：Thai (EasyOCR)")
+        # 使用默认的检测模型
+        DET_MODEL_PATH = os.path.join(DET_MODEL_BASE, MODEL_VERSION, 'ch_det_fast')
+        # 检查检测模型路径是否存在，如果不存在则创建
+        if not os.path.exists(DET_MODEL_PATH):
+            os.makedirs(DET_MODEL_PATH, exist_ok=True)
+        # 识别模型路径设为None，实际不会使用
+        REC_MODEL_PATH = None
+        # 设置标志，跳过后续对REC_MODEL_PATH的处理
+        SKIP_REC_MODEL_PATH_CHECK = True
+    else:
+        SKIP_REC_MODEL_PATH_CHECK = False
+
     # 定义文本检测与识别模型
     # 使用快速模式时，调用轻量级模型
     if MODE_TYPE == 'fast':
@@ -215,11 +234,11 @@ if REC_CHAR_TYPE in MULTI_LANG:
         REC_IMAGE_SHAPE = '3,48,320'
 
     # 查看该路径下是否有文本模型识别完整文件，没有的话合并小文件生成完整文件
-    if 'inference.pdiparams' not in (os.listdir(REC_MODEL_PATH)):
+    if not SKIP_REC_MODEL_PATH_CHECK and REC_MODEL_PATH is not None and 'inference.pdiparams' not in (os.listdir(REC_MODEL_PATH)):
         fs = Filesplit()
         fs.merge(input_dir=REC_MODEL_PATH)
     # 查看该路径下是否有文本模型识别完整文件，没有的话合并小文件生成完整文件
-    if 'inference.pdiparams' not in (os.listdir(DET_MODEL_PATH)):
+    if DET_MODEL_PATH is not None and 'inference.pdiparams' not in (os.listdir(DET_MODEL_PATH)):
         fs = Filesplit()
         fs.merge(input_dir=DET_MODEL_PATH)
 # ×××××××××××××××××××× [不要改]读取语言、模型路径、字典路径 end ××××××××××××××××××××

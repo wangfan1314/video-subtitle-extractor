@@ -1,7 +1,17 @@
 import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
 import importlib
 from paddleocr import PaddleOCR
+
+# 添加EasyOCR支持
+try:
+    import easyocr
+    EASYOCR_AVAILABLE = True
+except ImportError:
+    EASYOCR_AVAILABLE = False
+    print("EasyOCR not available. Thai language support will be limited.")
 
 # 加载文本检测+识别模型
 class OcrRecogniser:
@@ -9,6 +19,12 @@ class OcrRecogniser:
         # 获取参数对象
         importlib.reload(config)
         self.recogniser = self.init_model()
+        # 初始化EasyOCR识别器（如果需要泰语支持）
+        self.easyocr_reader = None
+        if config.REC_CHAR_TYPE == 'thai' and EASYOCR_AVAILABLE:
+            print("初始化EasyOCR泰语识别模型...")
+            self.easyocr_reader = easyocr.Reader(['th'], gpu=config.USE_GPU)
+            print("EasyOCR泰语识别模型初始化完成")
 
     @staticmethod
     def y_round(y):
@@ -20,6 +36,11 @@ class OcrRecogniser:
             return y_max
 
     def predict(self, image):
+        # 如果是泰语且EasyOCR可用，使用EasyOCR进行识别
+        if config.REC_CHAR_TYPE == 'thai' and EASYOCR_AVAILABLE and self.easyocr_reader is not None:
+            return self.predict_with_easyocr(image)
+        
+        # 否则使用PaddleOCR进行识别
         detection_box, recognise_result, _ = self.recogniser(image, cls=False)
         if len(detection_box) > 0:
             coordinate_list = list()
@@ -80,8 +101,53 @@ class OcrRecogniser:
             return dt_box, res
         else:
             return detection_box, recognise_result
+    
+    def predict_with_easyocr(self, image):
+        """
+        使用EasyOCR进行泰语识别，并将结果转换为与PaddleOCR相同的格式
+        """
+        try:
+            # EasyOCR的结果格式为：[[bbox, text, prob], ...]
+            # bbox格式为：[[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
+            easyocr_results = self.easyocr_reader.readtext(image)
+            
+            if not easyocr_results:
+                return [], []
+            
+            # 转换为PaddleOCR格式
+            dt_box = []
+            recognise_result = []
+            
+            for result in easyocr_results:
+                bbox, text, prob = result
+                
+                # 添加检测框
+                dt_box.append([
+                    (int(bbox[0][0]), int(bbox[0][1])),  # 左上
+                    (int(bbox[1][0]), int(bbox[1][1])),  # 右上
+                    (int(bbox[2][0]), int(bbox[2][1])),  # 右下
+                    (int(bbox[3][0]), int(bbox[3][1]))   # 左下
+                ])
+                
+                # 添加识别结果，格式为 (text, prob)
+                recognise_result.append((text, prob))
+            
+            return dt_box, recognise_result
+            
+        except Exception as e:
+            print(f"EasyOCR识别出错: {e}")
+            # 出错时返回空结果
+            return [], []
 
     def init_model(self):
+        # 如果是泰语且EasyOCR可用，不需要初始化PaddleOCR
+        if config.REC_CHAR_TYPE == 'thai' and EASYOCR_AVAILABLE:
+            # 返回一个空的占位符，实际不会使用
+            class DummyOCR:
+                def __call__(self, *args, **kwargs):
+                    return [], [], None
+            return DummyOCR()
+            
         return PaddleOCR(use_gpu=config.USE_GPU,
                          gpu_mem=500,
                          det_algorithm='DB',
