@@ -38,6 +38,8 @@ def extract_subtitles(data, text_recogniser, img, raw_subtitle_file,
         text_res = [(res[0], res[1]) for res in rec_res]
     line = ''
     loss_list = []
+    valid_entries = []  # 存储通过区域过滤的有效条目
+
     for content, coordinate in zip(text_res, coordinates):
         text = content[0]
         prob = content[1]
@@ -59,15 +61,74 @@ def extract_subtitles(data, text_recogniser, img, raw_subtitle_file,
                 if overflow_area_rate <= options.SUB_AREA_DEVIATION_RATE and prob > options.DROP_SCORE:
                     # 保留该帧
                     selected = True
-                    line += f'{str(data["i"]).zfill(8)}\t{coordinate}\t{text}\n'
-                    raw_subtitle_file.write(f'{str(data["i"]).zfill(8)}\t{coordinate}\t{text}\n')
+                    valid_entries.append({
+                        'frame': str(data["i"]).zfill(8),
+                        'coordinate': coordinate,
+                        'text': text
+                    })
             # 保存丢掉的识别结果
             loss_info = namedtuple('loss_info', 'text prob overflow_area_rate coordinate selected')
             loss_list.append(loss_info(text, prob, overflow_area_rate, coordinate, selected))
         else:
-            raw_subtitle_file.write(f'{str(data["i"]).zfill(8)}\t{coordinate}\t{text}\n')
+            valid_entries.append({
+                'frame': str(data["i"]).zfill(8),
+                'coordinate': coordinate,
+                'text': text
+            })
+
+    # 多行字幕合并处理：对同一帧的有效字幕进行合并
+    if valid_entries:
+        if len(valid_entries) == 1:
+            # 只有一行，直接写入
+            entry = valid_entries[0]
+            line = f'{entry["frame"]}\t{entry["coordinate"]}\t{entry["text"]}\n'
+            raw_subtitle_file.write(line)
+        else:
+            # 多行，进行合并
+            merged_line = merge_multiline_subtitles_entries(valid_entries)
+            line = merged_line
+            raw_subtitle_file.write(merged_line)
+
     # 输出调试信息
     dump_debug_info(options, line, img, loss_list, ocr_loss_debug_path, sub_area, data)
+
+
+def merge_multiline_subtitles_entries(valid_entries):
+    """
+    合并同一帧中的多行字幕条目
+    :param valid_entries: 有效的字幕条目列表，每个条目包含 frame, coordinate, text
+    :return: 合并后的字幕行数据
+    """
+    if len(valid_entries) <= 1:
+        if valid_entries:
+            entry = valid_entries[0]
+            return f'{entry["frame"]}\t{entry["coordinate"]}\t{entry["text"]}\n'
+        return ''
+
+    # 合并逻辑
+    # 第一列：使用第一条数据的帧号
+    merged_frame = valid_entries[0]['frame']
+
+    # 第二列：计算合并后的区域坐标
+    all_xmin = [entry['coordinate'][0] for entry in valid_entries]
+    all_xmax = [entry['coordinate'][1] for entry in valid_entries]
+    all_ymin = [entry['coordinate'][2] for entry in valid_entries]
+    all_ymax = [entry['coordinate'][3] for entry in valid_entries]
+
+    merged_coordinate = (
+        min(all_xmin),  # 最小的xmin
+        max(all_xmax),  # 最大的xmax
+        min(all_ymin),  # 最小的ymin
+        max(all_ymax)   # 最大的ymax
+    )
+
+    # 第三列：合并字幕文本，用\N连接
+    merged_text = '\\N'.join([entry['text'] for entry in valid_entries])
+
+    # 构建合并后的结果
+    merged_line = f'{merged_frame}\t{merged_coordinate}\t{merged_text}\n'
+
+    return merged_line
 
 
 def dump_debug_info(options, line, img, loss_list, ocr_loss_debug_path, sub_area, data):

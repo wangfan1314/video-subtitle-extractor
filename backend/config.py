@@ -292,7 +292,7 @@ DEBUG_NO_DELETE_CACHE = False
 DELETE_EMPTY_TIMESTAMP = True
 
 # 是否重新分词, 用于解决没有语句没有空格
-WORD_SEGMENTATION = True
+WORD_SEGMENTATION = False
 
 # 是否启用韩语智能空格处理
 KOREAN_SMART_SPACING = True
