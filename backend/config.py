@@ -294,6 +294,9 @@ DELETE_EMPTY_TIMESTAMP = True
 # 是否重新分词, 用于解决没有语句没有空格
 WORD_SEGMENTATION = True
 
+# 是否启用韩语智能空格处理
+KOREAN_SMART_SPACING = True
+
 # --------------------- 请根据自己的实际情况改 end-----------------------------
 
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'

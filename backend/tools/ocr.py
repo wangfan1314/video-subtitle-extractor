@@ -4,6 +4,10 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
 import importlib
 from paddleocr import PaddleOCR
+import re
+
+# 导入韩语空格处理模块
+from backend.tools.korean_spacing import process_korean_subtitle
 
 # 添加EasyOCR支持
 try:
@@ -42,6 +46,17 @@ class OcrRecogniser:
         
         # 否则使用PaddleOCR进行识别
         detection_box, recognise_result, _ = self.recogniser(image, cls=False)
+        
+        # 韩语模式下，使用PyKoSpacing处理空格
+        if config.REC_CHAR_TYPE == 'korean' and config.KOREAN_SMART_SPACING and len(recognise_result) > 0:
+            processed_result = []
+            for idx, (text, prob) in enumerate(recognise_result):
+                # 使用韩语空格处理工具处理文本
+                processed_text = process_korean_subtitle(text)
+                processed_result.append((processed_text, prob))
+            
+            recognise_result = processed_result
+        
         if len(detection_box) > 0:
             coordinate_list = list()
             if isinstance(detection_box, list):
