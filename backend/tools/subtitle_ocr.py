@@ -81,7 +81,8 @@ def extract_subtitles(data, text_recogniser, img, raw_subtitle_file,
         if len(valid_entries) == 1:
             # 只有一行，直接写入
             entry = valid_entries[0]
-            line = f'{entry["frame"]}\t{entry["coordinate"]}\t{entry["text"]}\n'
+            cleaned_text = clean_subtitle_text(entry["text"])
+            line = f'{entry["frame"]}\t{entry["coordinate"]}\t{cleaned_text}\n'
             raw_subtitle_file.write(line)
         else:
             # 多行，进行合并
@@ -93,6 +94,17 @@ def extract_subtitles(data, text_recogniser, img, raw_subtitle_file,
     dump_debug_info(options, line, img, loss_list, ocr_loss_debug_path, sub_area, data)
 
 
+def clean_subtitle_text(text):
+    """
+    清理字幕文本，删除前后的空格
+    :param text: 原始字幕文本
+    :return: 清理后的字幕文本
+    """
+    if text:
+        return text.strip()
+    return text
+
+
 def merge_multiline_subtitles_entries(valid_entries):
     """
     合并同一帧中的多行字幕条目
@@ -102,7 +114,8 @@ def merge_multiline_subtitles_entries(valid_entries):
     if len(valid_entries) <= 1:
         if valid_entries:
             entry = valid_entries[0]
-            return f'{entry["frame"]}\t{entry["coordinate"]}\t{entry["text"]}\n'
+            cleaned_text = clean_subtitle_text(entry["text"])
+            return f'{entry["frame"]}\t{entry["coordinate"]}\t{cleaned_text}\n'
         return ''
 
     # 合并逻辑
@@ -122,8 +135,9 @@ def merge_multiline_subtitles_entries(valid_entries):
         max(all_ymax)   # 最大的ymax
     )
 
-    # 第三列：合并字幕文本，用\N连接
-    merged_text = '\\N'.join([entry['text'] for entry in valid_entries])
+    # 第三列：合并字幕文本，用\N连接（先清理每行文本的前后空格）
+    cleaned_texts = [clean_subtitle_text(entry['text']) for entry in valid_entries]
+    merged_text = '\\N'.join(cleaned_texts)
 
     # 构建合并后的结果
     merged_line = f'{merged_frame}\t{merged_coordinate}\t{merged_text}\n'
