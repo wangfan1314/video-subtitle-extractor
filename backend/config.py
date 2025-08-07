@@ -110,6 +110,18 @@ if len(ONNX_PROVIDERS) > 0:
     USE_GPU = True
 # ×××××××××××××××××××× [不要改]判断是否使用GPU end ××××××××××××××××××××
 
+# ×××××××××××××××××××× EasyOCR GPU 配置 start ××××××××××××××××××××
+# EasyOCR 独立的GPU设置，可以在settings.ini中配置
+# 如果没有单独设置，则使用全局USE_GPU设置
+EASYOCR_USE_GPU = USE_GPU  # 默认使用全局GPU设置
+if 'EasyOCR_GPU' in settings_config['DEFAULT']:
+    easyocr_gpu_setting = settings_config['DEFAULT']['EasyOCR_GPU'].lower()
+    if easyocr_gpu_setting in ['true', '1', 'yes', 'on']:
+        EASYOCR_USE_GPU = True
+    elif easyocr_gpu_setting in ['false', '0', 'no', 'off']:
+        EASYOCR_USE_GPU = False
+# ×××××××××××××××××××× EasyOCR GPU 配置 end ××××××××××××××××××××
+
 
 # ×××××××××××××××××××× [不要改]读取语言、模型路径、字典路径 start ××××××××××××××××××××
 # 设置识别语言

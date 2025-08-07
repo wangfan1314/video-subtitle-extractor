@@ -27,7 +27,8 @@ class OcrRecogniser:
         self.easyocr_reader = None
         if config.REC_CHAR_TYPE == 'thai' and EASYOCR_AVAILABLE:
             print("初始化EasyOCR泰语识别模型...")
-            self.easyocr_reader = easyocr.Reader(['th'], gpu=config.USE_GPU)
+            print(f"EasyOCR GPU设置: {config.EASYOCR_USE_GPU}")
+            self.easyocr_reader = easyocr.Reader(['th'], gpu=config.EASYOCR_USE_GPU)
             print("EasyOCR泰语识别模型初始化完成")
 
     @staticmethod

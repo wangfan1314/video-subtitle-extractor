@@ -355,7 +355,7 @@ $RECYCLE.BIN/
 /output/
 /backend/test.py
 /dylib/
-/settings.ini
+# /settings.ini
 /test.py
 /test2.py
 /subtitle.ini
