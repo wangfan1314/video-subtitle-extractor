@@ -1137,6 +1137,11 @@ class SubtitleExtractor:
                 return
                 
             subs = pysrt.open(self.vsf_subtitle)
+            
+            # 为每个字幕设置no属性，避免AttributeError
+            for sub in subs:
+                sub.start.no = self._timestamp_to_frameno(sub.start.ordinal)
+                
             subtitle_content = self._remove_duplicate_subtitle()
             subtitle_content_start_map = {int(a[0]): a for a in subtitle_content}
             
