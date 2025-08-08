@@ -27,6 +27,22 @@ class OcrRecogniser:
         if config.REC_CHAR_TYPE == 'thai' and EASYOCR_AVAILABLE:
             print("初始化EasyOCR泰语识别模型...")
             print(f"EasyOCR GPU设置: {config.EASYOCR_USE_GPU}")
+            
+            # 检测平台信息
+            import platform
+            print(f"运行平台: {platform.system()}")
+            
+            # 如果是GPU模式，检测CUDA可用性
+            if config.EASYOCR_USE_GPU:
+                try:
+                    import torch
+                    print(f"PyTorch CUDA可用: {torch.cuda.is_available()}")
+                    if torch.cuda.is_available():
+                        print(f"CUDA设备数量: {torch.cuda.device_count()}")
+                        print(f"当前CUDA设备: {torch.cuda.get_device_name()}")
+                except:
+                    print("无法检测CUDA信息")
+            
             self.easyocr_reader = easyocr.Reader(['th'], gpu=config.EASYOCR_USE_GPU)
             print("EasyOCR泰语识别模型初始化完成")
 
@@ -135,6 +151,9 @@ class OcrRecogniser:
             
             for result in easyocr_results:
                 bbox, text, prob = result
+                
+                # 调试信息：打印识别结果和置信度
+                print(f"EasyOCR识别: '{text}' (置信度: {prob:.4f})")
                 
                 # 添加检测框
                 dt_box.append([
