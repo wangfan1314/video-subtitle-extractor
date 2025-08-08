@@ -81,6 +81,26 @@ class SubtitleExtractor:
         # 视频尺寸
         self.frame_height = int(self.video_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.frame_width = int(self.video_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+
+        # 添加错误检查
+        if self.frame_height == 0 or self.frame_width == 0:
+            # 尝试读取第一帧来获取尺寸
+            ret, frame = self.video_cap.read()
+            if ret and frame is not None:
+                self.frame_height, self.frame_width = frame.shape[:2]
+                # 重置视频到开头
+                self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            else:
+                raise ValueError(f"无法获取视频尺寸: {self.video_path}")
+
+        print(f"视频尺寸: {self.frame_width}x{self.frame_height}")
+        print(f"视频路径: {vd_path}")
+        print(f"VideoCapture isOpened: {self.video_cap.isOpened()}")
+        print(f"原始frame_height: {self.video_cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
+        print(f"原始frame_width: {self.video_cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
+        print(f"帧总数: {self.video_cap.get(cv2.CAP_PROP_FRAME_COUNT)}")
+        print(f"帧率: {self.video_cap.get(cv2.CAP_PROP_FPS)}")
+
         # 用户未指定字幕区域时，默认字幕出现的区域
         self.default_subtitle_area = config.DEFAULT_SUBTITLE_AREA
         # 提取的视频帧储存目录
