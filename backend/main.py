@@ -1206,7 +1206,7 @@ if __name__ == '__main__':
     except ValueError as e:
         subtitle_area = None
     # 新建字幕提取对象
-    video_path = "/Users/wangzhizhong/Documents/无言之吻.mp4"
+    video_path = "G:\workspace\无言之吻.mp4"
     y_min, y_max, x_min, x_max = 1300, 1600, 0, 1080
     subtitle_area = (y_min, y_max, x_min, x_max)
     se = SubtitleExtractor(video_path, subtitle_area)
