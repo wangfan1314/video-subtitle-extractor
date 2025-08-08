@@ -1,12 +1,13 @@
 import os,sys,config,importlib
-import torch
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import torch
 from paddleocr import PaddleOCR
 import re
 
 # 导入韩语空格处理模块
 from backend.tools.korean_spacing import process_korean_subtitle
 
+ocr = PaddleOCR()
 # 添加EasyOCR支持
 try:
     import easyocr
