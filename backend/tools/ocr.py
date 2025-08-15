@@ -1,5 +1,6 @@
-import os,sys,config,importlib
+import os,sys,importlib
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import backend.config as config
 import torch
 from paddleocr import PaddleOCR
 import re
@@ -18,13 +19,27 @@ except ImportError:
 
 # 加载文本检测+识别模型
 class OcrRecogniser:
-    def __init__(self):
+    def __init__(self, language=None, mode=None):
+        """
+        初始化OCR识别器
+        Args:
+            language: 语言类型，如果为None则使用配置文件设置
+            mode: 识别模式，如果为None则使用配置文件设置
+        """
         # 获取参数对象
         importlib.reload(config)
+        
+        # 设置语言和模式
+        self.language = language if language is not None else config.get_language_config()
+        self.mode = mode if mode is not None else config.MODE_TYPE
+        
+        # 获取模型路径
+        self.det_model_path, self.rec_model_path, self.model_version, self.skip_rec_check = config.get_model_paths(self.language, self.mode)
+        
         self.recogniser = self.init_model()
         # 初始化EasyOCR识别器（如果需要泰语支持）
         self.easyocr_reader = None
-        if config.REC_CHAR_TYPE == 'thai' and EASYOCR_AVAILABLE:
+        if self.language == 'thai' and EASYOCR_AVAILABLE:
             print("初始化EasyOCR泰语识别模型...")
             print(f"EasyOCR GPU设置: {config.EASYOCR_USE_GPU}")
             
@@ -57,14 +72,14 @@ class OcrRecogniser:
 
     def predict(self, image):
         # 如果是泰语且EasyOCR可用，使用EasyOCR进行识别
-        if config.REC_CHAR_TYPE == 'thai' and EASYOCR_AVAILABLE and self.easyocr_reader is not None:
+        if self.language == 'thai' and EASYOCR_AVAILABLE and self.easyocr_reader is not None:
             return self.predict_with_easyocr(image)
         
         # 否则使用PaddleOCR进行识别
         detection_box, recognise_result, _ = self.recogniser(image, cls=False)
         
         # 韩语模式下，使用PyKoSpacing处理空格
-        if config.REC_CHAR_TYPE == 'korean' and config.KOREAN_SMART_SPACING and len(recognise_result) > 0:
+        if self.language == 'korean' and config.KOREAN_SMART_SPACING and len(recognise_result) > 0:
             processed_result = []
             for idx, (text, prob) in enumerate(recognise_result):
                 # 使用韩语空格处理工具处理文本
@@ -151,10 +166,6 @@ class OcrRecogniser:
             
             for result in easyocr_results:
                 bbox, text, prob = result
-                
-                # 调试信息：打印识别结果和置信度
-                print(f"EasyOCR识别: '{text}' (置信度: {prob:.4f})")
-                
                 # 添加检测框
                 dt_box.append([
                     (int(bbox[0][0]), int(bbox[0][1])),  # 左上
@@ -175,30 +186,33 @@ class OcrRecogniser:
 
     def init_model(self):
         # 如果是泰语且EasyOCR可用，不需要初始化PaddleOCR
-        if config.REC_CHAR_TYPE == 'thai' and EASYOCR_AVAILABLE:
+        if self.language == 'thai' and EASYOCR_AVAILABLE:
             # 返回一个空的占位符，实际不会使用
             class DummyOCR:
                 def __call__(self, *args, **kwargs):
                     return [], [], None
             return DummyOCR()
             
+        # 计算图像识别shape
+        rec_image_shape = '3,48,320' if self.model_version != 'V2' else '3,32,320'
+            
         return PaddleOCR(use_gpu=config.USE_GPU,
                          gpu_mem=500,
                          det_algorithm='DB',
                          # 设置文本检测模型路径
-                         det_model_dir=self.convertToOnnxModelIfNeeded(config.DET_MODEL_PATH),
+                         det_model_dir=self.convertToOnnxModelIfNeeded(self.det_model_path),
                          rec_algorithm='CRNN',
                          # 设置每张图文本框批处理数量
                          rec_batch_num=config.REC_BATCH_NUM,
                          # 设置文本识别模型路径
-                         rec_model_dir=self.convertToOnnxModelIfNeeded(config.REC_MODEL_PATH),
+                         rec_model_dir=self.convertToOnnxModelIfNeeded(self.rec_model_path),
                          max_batch_size=config.MAX_BATCH_SIZE,
                          det=True,
                          use_angle_cls=False,
                          drop_score=0,
-                         lang=config.REC_CHAR_TYPE,
-                         ocr_version=f'PP-OCR{config.MODEL_VERSION.lower()}',
-                         rec_image_shape=config.REC_IMAGE_SHAPE,
+                         lang=self.language,
+                         ocr_version=f'PP-OCR{self.model_version.lower()}',
+                         rec_image_shape=rec_image_shape,
                          use_onnx=len(config.ONNX_PROVIDERS) > 0,
                          onnx_providers=config.ONNX_PROVIDERS,
                          debug=False, show_log=False)

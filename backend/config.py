@@ -13,8 +13,9 @@ import re
 import time
 from pathlib import Path
 from fsplit.filesplit import Filesplit
+import torch
 import paddle
-from tools.constant import *
+from backend.tools.constant import *
 
 # 项目版本号
 VERSION = "2.0.3"
@@ -124,7 +125,100 @@ if 'EasyOCR_GPU' in settings_config['DEFAULT']:
 
 
 # ×××××××××××××××××××× [不要改]读取语言、模型路径、字典路径 start ××××××××××××××××××××
-# 设置识别语言
+# 设置识别语言 - 支持API动态传参
+def get_language_config():
+    """获取当前的语言配置，优先使用API传入的参数"""
+    # 检查是否有通过API传入的语言设置
+    if hasattr(get_language_config, '_api_language') and get_language_config._api_language:
+        return get_language_config._api_language
+    # 否则使用配置文件中的设置
+    return settings_config['DEFAULT']['Language']
+
+def set_api_language(language):
+    """设置API传入的语言参数"""
+    get_language_config._api_language = language
+
+def clear_api_language():
+    """清除API传入的语言参数"""
+    get_language_config._api_language = None
+
+def get_model_paths(language=None, mode=None):
+    """
+    动态获取模型路径
+    Args:
+        language: 语言类型，如果为None则使用get_language_config()
+        mode: 模式类型，如果为None则使用全局MODE_TYPE
+    Returns:
+        tuple: (det_model_path, rec_model_path, model_version, skip_rec_check)
+    """
+    if language is None:
+        language = get_language_config()
+    if mode is None:
+        mode = MODE_TYPE
+    
+    # 模型文件目录
+    model_version = 'V4'
+    det_model_base = os.path.join(BASE_DIR, 'models')
+    rec_model_base = os.path.join(BASE_DIR, 'models')
+    
+    # 初始模型路径
+    rec_model_path = os.path.join(rec_model_base, model_version, f'{language}_rec')
+    det_model_path = os.path.join(det_model_base, model_version, f'{language}_det')
+    
+    skip_rec_check = False
+    
+    # 泰语特殊处理
+    if language == 'thai':
+        det_model_path = os.path.join(det_model_base, model_version, 'ch_det_fast')
+        if not os.path.exists(det_model_path):
+            os.makedirs(det_model_path, exist_ok=True)
+        rec_model_path = None
+        skip_rec_check = True
+        return det_model_path, rec_model_path, model_version, skip_rec_check
+    
+    # 根据模式选择模型
+    if mode == 'fast':
+        det_model_path = os.path.join(det_model_base, model_version, 'ch_det_fast')
+        rec_model_path = os.path.join(rec_model_base, model_version, f'{language}_rec_fast')
+    elif mode == 'auto':
+        if USE_GPU:
+            det_model_path = os.path.join(det_model_base, model_version, 'ch_det')
+            if language == 'en':
+                rec_model_path = os.path.join(rec_model_base, model_version, f'ch_rec')
+            else:
+                rec_model_path = os.path.join(rec_model_base, model_version, f'{language}_rec')
+        else:
+            det_model_path = os.path.join(det_model_base, model_version, 'ch_det_fast')
+            rec_model_path = os.path.join(rec_model_base, model_version, f'{language}_rec_fast')
+    else:  # accurate mode
+        det_model_path = os.path.join(det_model_base, model_version, 'ch_det')
+        rec_model_path = os.path.join(rec_model_base, model_version, f'{language}_rec')
+    
+    # 回退逻辑
+    if not os.path.exists(rec_model_path):
+        rec_model_path = os.path.join(rec_model_base, model_version, f'{language}_rec_fast')
+    
+    if not os.path.exists(rec_model_path):
+        model_version = 'V3'
+        rec_model_path = os.path.join(rec_model_base, model_version, f'{language}_rec')
+    
+    if not os.path.exists(rec_model_path):
+        model_version = 'V3'
+        rec_model_path = os.path.join(rec_model_base, model_version, f'{language}_rec_fast')
+    
+    # 处理多语言映射
+    if language in LATIN_LANG:
+        rec_model_path = os.path.join(rec_model_base, model_version, f'latin_rec_fast')
+    elif language in ARABIC_LANG:
+        rec_model_path = os.path.join(rec_model_base, model_version, f'arabic_rec_fast')
+    elif language in CYRILLIC_LANG:
+        rec_model_path = os.path.join(rec_model_base, model_version, f'cyrillic_rec_fast')
+    elif language in DEVANAGARI_LANG:
+        rec_model_path = os.path.join(rec_model_base, model_version, f'devanagari_rec_fast')
+    
+    return det_model_path, rec_model_path, model_version, skip_rec_check
+
+# 默认语言配置（用于向后兼容）
 REC_CHAR_TYPE = settings_config['DEFAULT']['Language']
 
 # 设置识别模式

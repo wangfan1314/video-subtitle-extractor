@@ -59,10 +59,13 @@ class SubtitleExtractor:
     视频字幕提取类
     """
 
-    def __init__(self, vd_path, sub_area=None):
+    def __init__(self, vd_path, sub_area=None, language=None, mode=None):
         importlib.reload(config)
         # 线程锁
         self.lock = threading.RLock()
+        # 设置语言和模式
+        self.language = language
+        self.mode = mode
         # 用户指定的字幕区域位置
         self.sub_area = sub_area
         # 创建字幕检测对象
@@ -120,9 +123,12 @@ class SubtitleExtractor:
         self.raw_subtitle_path = os.path.join(self.subtitle_output_dir, 'raw.txt')
         # 自定义ocr对象
         self.ocr = None
+        # 获取实际使用的语言和模式
+        self.actual_language = self.language if self.language is not None else config.get_language_config()
+        self.actual_mode = self.mode if self.mode is not None else config.MODE_TYPE
         # 打印识别语言与识别模式
-        print(f"{config.interface_config['Main']['RecSubLang']}：{config.REC_CHAR_TYPE}")
-        print(f"{config.interface_config['Main']['RecMode']}：{config.MODE_TYPE}")
+        print(f"{config.interface_config['Main']['RecSubLang']}：{self.actual_language}")
+        print(f"{config.interface_config['Main']['RecMode']}：{self.actual_mode}")
         # 如果使用GPU加速，则打印GPU加速提示
         if config.USE_GPU:
             print(config.interface_config['Main']['GPUSpeedUp'])
@@ -206,7 +212,7 @@ class SubtitleExtractor:
             # 如果未使用vsf提取字幕，则使用常规字幕生成方法
             self.generate_subtitle_file()
         if config.WORD_SEGMENTATION:
-            reformat.execute(os.path.join(os.path.splitext(self.video_path)[0] + '.srt'), config.REC_CHAR_TYPE)
+            reformat.execute(os.path.join(os.path.splitext(self.video_path)[0] + '.srt'), self.actual_language)
         print(config.interface_config['Main']['FinishGenerateSub'], f"{round(time.time() - start_time, 2)}s")
         self.update_progress(ocr=100, frame_extract=100)
         self.isFinished = True
@@ -280,7 +286,7 @@ class SubtitleExtractor:
         start_end_frame_no = []
         start_frame = None
         if self.ocr is None:
-            self.ocr = OcrRecogniser()
+            self.ocr = OcrRecogniser(language=self.actual_language, mode=self.actual_mode)
         while self.video_cap.isOpened():
             ret, frame = self.video_cap.read()
             # 如果读取视频帧失败（视频读到最后一帧）
@@ -926,7 +932,7 @@ class SubtitleExtractor:
         比较两张图片预测出的字幕区域文本是否相同
         """
         if self.ocr is None:
-            self.ocr = OcrRecogniser()
+            self.ocr = OcrRecogniser(language=self.actual_language, mode=self.actual_mode)
         if img1_no in result_cache:
             area_text1 = result_cache[img1_no]['text']
         else:
@@ -1023,11 +1029,13 @@ class SubtitleExtractor:
         process, task_queue, progress_queue = subtitle_ocr.async_start(self.video_path,
                                                                        self.raw_subtitle_path,
                                                                        self.sub_area,
-                                                                       options={'REC_CHAR_TYPE': config.REC_CHAR_TYPE,
+                                                                       options={'REC_CHAR_TYPE': self.actual_language,
                                                                                 'DROP_SCORE': config.DROP_SCORE,
                                                                                 'SUB_AREA_DEVIATION_RATE': config.SUB_AREA_DEVIATION_RATE,
                                                                                 'DEBUG_OCR_LOSS': config.DEBUG_OCR_LOSS,
-                                                                                }
+                                                                                },
+                                                                       language=self.actual_language,
+                                                                       mode=self.actual_mode
                                                                        )
         self.subtitle_ocr_task_queue = task_queue
         self.subtitle_ocr_progress_queue = progress_queue
@@ -1211,8 +1219,8 @@ if __name__ == '__main__':
     except ValueError as e:
         subtitle_area = None
     # 新建字幕提取对象
-    video_path = "G:\\workspace\\无言之吻.mp4"
-    y_min, y_max, x_min, x_max = 1350, 1600, 0, 1080
+    # video_path = "/Users/wangzhizhong/Documents/1.mp4"
+    # y_min, y_max, x_min, x_max = 1300, 1600, 0, 1080
     subtitle_area = (y_min, y_max, x_min, x_max)
     se = SubtitleExtractor(video_path, subtitle_area)
     # 开始提取字幕

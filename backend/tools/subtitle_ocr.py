@@ -192,7 +192,7 @@ def paint_chinese_opencv(im, chinese, pos, color):
     return img
 
 
-def ocr_task_consumer(ocr_queue, raw_subtitle_path, sub_area, video_path, options):
+def ocr_task_consumer(ocr_queue, raw_subtitle_path, sub_area, video_path, options, language=None, mode=None):
     """
     消费者： 消费ocr_queue，将ocr队列中的数据取出，进行ocr识别，写入字幕文件中
     :param ocr_queue (current_frame_no当前帧帧号, frame 视频帧, dt_box检测框, rec_res识别结果)
@@ -200,10 +200,12 @@ def ocr_task_consumer(ocr_queue, raw_subtitle_path, sub_area, video_path, option
     :param sub_area
     :param video_path
     :param options
+    :param language: 识别语言
+    :param mode: 识别模式
     """
     data = {'i': 1}
     # 初始化文本识别对象
-    text_recogniser = OcrRecogniser()
+    text_recogniser = OcrRecogniser(language=language, mode=mode)
     # 丢失字幕的存储路径
     ocr_loss_debug_path = os.path.join(os.path.abspath(os.path.splitext(video_path)[0]), 'loss')
     # 删除之前的缓存垃圾
@@ -289,9 +291,13 @@ def subtitle_extract_handler(task_queue, progress_queue, video_path, raw_subtitl
     ocr_event_producer_thread = Thread(target=ocr_task_producer,
                                        args=(ocr_queue, task_queue, progress_queue, video_path, raw_subtitle_path,),
                                        daemon=True)
+    # 获取语言和模式参数
+    language = getattr(options, 'language', None)
+    mode = getattr(options, 'mode', None)
+    
     # 创建一个OCR事件消费者提取线程
     ocr_event_consumer_thread = Thread(target=ocr_task_consumer,
-                                       args=(ocr_queue, raw_subtitle_path, sub_area, video_path, options,),
+                                       args=(ocr_queue, raw_subtitle_path, sub_area, video_path, options, language, mode),
                                        daemon=True)
     # 开启消费者线程
     ocr_event_producer_thread.start()
@@ -302,13 +308,15 @@ def subtitle_extract_handler(task_queue, progress_queue, video_path, raw_subtitl
     ocr_event_consumer_thread.join()
 
 
-def async_start(video_path, raw_subtitle_path, sub_area, options):
+def async_start(video_path, raw_subtitle_path, sub_area, options, language=None, mode=None):
     """
     开始进程处理异步任务
     options.REC_CHAR_TYPE
     options.DROP_SCORE
     options.SUB_AREA_DEVIATION_RATE
     options.DEBUG_OCR_LOSS
+    :param language: 识别语言
+    :param mode: 识别模式
     """
     assert 'REC_CHAR_TYPE' in options, "options缺少参数：REC_CHAR_TYPE"
     assert 'DROP_SCORE' in options, "options缺少参数: DROP_SCORE'"
@@ -320,8 +328,15 @@ def async_start(video_path, raw_subtitle_path, sub_area, options):
     # 创建一个进度更新队列
     progress_queue = Queue()
     # 新建一个进程
+    # 将语言和模式参数传递给options
+    enhanced_options = options.copy()
+    if language is not None:
+        enhanced_options['language'] = language
+    if mode is not None:
+        enhanced_options['mode'] = mode
+    
     p = Process(target=subtitle_extract_handler,
-                args=(task_queue, progress_queue, video_path, raw_subtitle_path, sub_area, SimpleNamespace(**options),))
+                args=(task_queue, progress_queue, video_path, raw_subtitle_path, sub_area, SimpleNamespace(**enhanced_options),))
     # 启动进程
     p.start()
     return p, task_queue, progress_queue
