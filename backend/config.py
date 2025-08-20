@@ -382,8 +382,31 @@ WATERMARK_AREA_NUM = 5
 # 如：文本较短，人民、入民，0.5就算相似
 THRESHOLD_TEXT_SIMILARITY = 0.8
 
-# 字幕提取中置信度低于0.75的不要
-DROP_SCORE = 0.75
+# 字幕提取中置信度阈值设置
+DROP_SCORE = 0.75  # 默认置信度阈值
+
+# 不同语言的置信度阈值映射
+# 根据不同语言的OCR识别特点，设置不同的置信度阈值
+LANGUAGE_DROP_SCORE_MAP = {
+    'thai': 0.3,    # 泰语：EasyOCR识别，使用较低阈值提高召回率
+    # 可以根据需要添加其他语言的特殊阈值设置：
+    # 'arabic': 0.6,   # 阿拉伯语示例
+    # 'korean': 0.8,   # 韩语示例
+    # 其他语言使用默认值0.75
+}
+
+def get_drop_score(language=None):
+    """
+    根据语言获取对应的置信度阈值
+    Args:
+        language: 语言类型，如果为None则使用当前配置的语言
+    Returns:
+        float: 对应语言的置信度阈值
+    """
+    if language is None:
+        language = get_language_config()
+    
+    return LANGUAGE_DROP_SCORE_MAP.get(language, DROP_SCORE)
 
 # 字幕区域允许偏差, 0为不允许越界, 0.03表示可以越界3%
 SUB_AREA_DEVIATION_RATE = 0

@@ -1030,7 +1030,7 @@ class SubtitleExtractor:
                                                                        self.raw_subtitle_path,
                                                                        self.sub_area,
                                                                        options={'REC_CHAR_TYPE': self.actual_language,
-                                                                                'DROP_SCORE': config.DROP_SCORE,
+                                                                                'DROP_SCORE': config.get_drop_score(self.actual_language),
                                                                                 'SUB_AREA_DEVIATION_RATE': config.SUB_AREA_DEVIATION_RATE,
                                                                                 'DEBUG_OCR_LOSS': config.DEBUG_OCR_LOSS,
                                                                                 },
