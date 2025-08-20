@@ -94,8 +94,8 @@ class CustomSubtitleExtractor:
         # 在自定义输出目录中查找SRT文件
         video_basename = os.path.splitext(os.path.basename(self.video_path))[0]
         srt_filename = os.path.join(self.subtitle_output_dir, f"{video_basename}.srt")
-        json_filename = os.path.join(self.subtitle_output_dir, f"{video_basename}.json")
-        
+        json_filename = os.path.join(os.path.splitext(self.video_path)[0] + '.json')
+
         print(f"查找SRT文件: {srt_filename}")
         
         # 首先检查原始字幕文件是否存在
@@ -134,59 +134,59 @@ class CustomSubtitleExtractor:
                 print(f"创建空的JSON字幕文件: {json_filename}")
                 return
         
-        # 如果原始字幕文件存在，使用原始逻辑处理
-        if not self.extractor.use_vsf:
-            subtitle_content = self.extractor._remove_duplicate_subtitle()
+        # VSF和非VSF模式都可以使用相同的逻辑
+        # 因为_remove_duplicate_subtitle()返回的数据格式在两种模式下是一致的
+        mode_info = "VSF模式" if self.extractor.use_vsf else "非VSF模式"
+        print(f"{mode_info}：生成JSON文件...")
+        
+        subtitle_content = self.extractor._remove_duplicate_subtitle()
+        
+        subtitle_data = []
+        for index, content in enumerate(subtitle_content):
+            line_code = index + 1
+            frame_start = self.extractor._frame_to_timecode(int(content[0]))
             
-            subtitle_data = []
-            for index, content in enumerate(subtitle_content):
-                line_code = index + 1
-                frame_start = self.extractor._frame_to_timecode(int(content[0]))
+            # 比较起始帧号与结束帧号， 如果字幕持续时间不足1秒，则将显示时间设为1s
+            if abs(int(content[1]) - int(content[0])) < self.extractor.fps:
+                frame_end = self.extractor._frame_to_timecode(int(int(content[0]) + self.extractor.fps))
+            else:
+                frame_end = self.extractor._frame_to_timecode(int(content[1]))
+            
+            frame_content = content[2]
+            
+            # 解析坐标信息
+            coordinate_str = content[3].strip('()')
+            try:
+                xmin, xmax, ymin, ymax = map(int, coordinate_str.split(', '))
                 
-                # 比较起始帧号与结束帧号， 如果字幕持续时间不足1秒，则将显示时间设为1s
-                if abs(int(content[1]) - int(content[0])) < self.extractor.fps:
-                    frame_end = self.extractor._frame_to_timecode(int(int(content[0]) + self.extractor.fps))
-                else:
-                    frame_end = self.extractor._frame_to_timecode(int(content[1]))
-                
-                frame_content = content[2]
-                
-                # 解析坐标信息
-                coordinate_str = content[3].strip('()')
-                try:
-                    xmin, xmax, ymin, ymax = map(int, coordinate_str.split(', '))
-                    
-                    subtitle_entry = {
-                        "index": line_code,
-                        "start_time": frame_start,
-                        "end_time": frame_end,
-                        "text": frame_content.strip(),
-                        "position": {
-                            "left": xmin,
-                            "right": xmax,
-                            "top": ymin,
-                            "bottom": ymax
-                        }
+                subtitle_entry = {
+                    "index": line_code,
+                    "start_time": frame_start,
+                    "end_time": frame_end,
+                    "text": frame_content.strip(),
+                    "position": {
+                        "left": xmin,
+                        "right": xmax,
+                        "top": ymin,
+                        "bottom": ymax
                     }
-                    subtitle_data.append(subtitle_entry)
-                except (ValueError, IndexError):
-                    # 如果坐标解析失败，添加没有位置信息的条目
-                    subtitle_entry = {
-                        "index": line_code,
-                        "start_time": frame_start,
-                        "end_time": frame_end,
-                        "text": frame_content.strip()
-                    }
-                    subtitle_data.append(subtitle_entry)
-            
-            # 写入JSON文件到正确的输出目录
-            with open(json_filename, mode='w', encoding='utf-8') as f:
-                json.dump(subtitle_data, f, ensure_ascii=False, indent=2)
-            
-            print(f"JSON字幕文件已生成: {json_filename}")
-        else:
-            # VSF模式的处理逻辑（如果需要的话）
-            print("VSF模式暂不支持JSON生成")
+                }
+                subtitle_data.append(subtitle_entry)
+            except (ValueError, IndexError):
+                # 如果坐标解析失败，添加没有位置信息的条目
+                subtitle_entry = {
+                    "index": line_code,
+                    "start_time": frame_start,
+                    "end_time": frame_end,
+                    "text": frame_content.strip()
+                }
+                subtitle_data.append(subtitle_entry)
+        
+        # 写入JSON文件到正确的输出目录
+        with open(json_filename, mode='w', encoding='utf-8') as f:
+            json.dump(subtitle_data, f, ensure_ascii=False, indent=2)
+        
+        print(f"JSON字幕文件已生成({mode_info}): {json_filename}")
     
     def _run_custom(self):
         """
