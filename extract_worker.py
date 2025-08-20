@@ -156,42 +156,69 @@ class CustomSubtitleExtractor:
         
         subtitle_data = []
         for index, content in enumerate(subtitle_content):
-            line_code = index + 1
-            frame_start = self.extractor._frame_to_timecode(int(content[0]))
+            start_frame_no = int(content[0])
+            end_frame_no = int(content[1])
             
             # 比较起始帧号与结束帧号， 如果字幕持续时间不足1秒，则将显示时间设为1s
-            if abs(int(content[1]) - int(content[0])) < self.extractor.fps:
-                frame_end = self.extractor._frame_to_timecode(int(int(content[0]) + self.extractor.fps))
-            else:
-                frame_end = self.extractor._frame_to_timecode(int(content[1]))
+            if abs(end_frame_no - start_frame_no) < self.extractor.fps:
+                end_frame_no = start_frame_no + int(self.extractor.fps)
+            
+            # 计算时间（秒）
+            start_time_sec = round(start_frame_no / self.extractor.fps, 2)
+            end_time_sec = round(end_frame_no / self.extractor.fps, 2)
             
             frame_content = content[2]
+            
+            # 根据语言设置label
+            language_label_map = {
+                'ch': 'CN',
+                'chinese_cht': 'CHT', 
+                'en': 'EN',
+                'korean': 'KR',
+                'japan': 'JP',
+                'thai': 'TH',
+                'ar': 'AR',
+                'es': 'ES',
+                'fr': 'FR',
+                'de': 'DE',
+                'ru': 'RU',
+                'pt': 'PT',
+                'it': 'IT',
+                'vi': 'VI'
+            }
+            
+            # 获取当前语言的label，默认为'CN'
+            current_language = getattr(self.extractor, 'actual_language', 'ch')
+            label = language_label_map.get(current_language, 'CN')
             
             # 解析坐标信息
             coordinate_str = content[3].strip('()')
             try:
                 xmin, xmax, ymin, ymax = map(int, coordinate_str.split(', '))
                 
+                # 新的数据结构：rect格式为[left, top, right, bottom]
                 subtitle_entry = {
-                    "index": line_code,
-                    "start_time": frame_start,
-                    "end_time": frame_end,
+                    "idx": index,  # 从0开始
+                    "rect": [xmin, ymin, xmax, ymax],  # [left, top, right, bottom]
                     "text": frame_content.strip(),
-                    "position": {
-                        "left": xmin,
-                        "right": xmax,
-                        "top": ymin,
-                        "bottom": ymax
-                    }
+                    "label": label,
+                    "start_frame": start_frame_no,
+                    "end_frame": end_frame_no,
+                    "start_time": start_time_sec,
+                    "end_time": end_time_sec
                 }
                 subtitle_data.append(subtitle_entry)
             except (ValueError, IndexError):
                 # 如果坐标解析失败，添加没有位置信息的条目
                 subtitle_entry = {
-                    "index": line_code,
-                    "start_time": frame_start,
-                    "end_time": frame_end,
-                    "text": frame_content.strip()
+                    "idx": index,  # 从0开始
+                    "rect": [0, 0, 0, 0],  # 默认坐标
+                    "text": frame_content.strip(),
+                    "label": label,
+                    "start_frame": start_frame_no,
+                    "end_frame": end_frame_no,
+                    "start_time": start_time_sec,
+                    "end_time": end_time_sec
                 }
                 subtitle_data.append(subtitle_entry)
         
@@ -377,12 +404,39 @@ def main():
                 with open(json_files[0], 'r', encoding='utf-8') as f:
                     subtitle_data = json.load(f)
                     for item in subtitle_data:
+                        # 适配新的JSON数据结构
+                        rect = item.get("rect", [0, 0, 0, 0])
+                        position = None
+                        if len(rect) >= 4:
+                            # rect格式：[left, top, right, bottom]
+                            position = {
+                                "left": rect[0],
+                                "top": rect[1], 
+                                "right": rect[2],
+                                "bottom": rect[3]
+                            }
+                        
+                        # 时间格式转换：从秒数转回时间码格式
+                        start_time_sec = item.get("start_time", 0)
+                        end_time_sec = item.get("end_time", 0)
+                        
+                        def sec_to_timecode(seconds):
+                            """将秒数转换为SRT时间码格式"""
+                            hours = int(seconds // 3600)
+                            minutes = int((seconds % 3600) // 60)
+                            secs = int(seconds % 60)
+                            millisecs = int((seconds % 1) * 1000)
+                            return f"{hours:02d}:{minutes:02d}:{secs:02d},{millisecs:03d}"
+                        
+                        start_time_str = sec_to_timecode(start_time_sec) if isinstance(start_time_sec, (int, float)) else str(start_time_sec)
+                        end_time_str = sec_to_timecode(end_time_sec) if isinstance(end_time_sec, (int, float)) else str(end_time_sec)
+                        
                         subtitles.append({
-                            "index": item.get("index", 0),
-                            "start_time": safe_string(item.get("start_time", "")),
-                            "end_time": safe_string(item.get("end_time", "")),
+                            "index": item.get("idx", 0) + 1,  # idx从0开始，转换为从1开始的index
+                            "start_time": safe_string(start_time_str),
+                            "end_time": safe_string(end_time_str),
                             "text": safe_string(item.get("text", "")),
-                            "position": item.get("position")
+                            "position": position
                         })
             except Exception as e:
                 print(f"读取JSON字幕文件失败: {e}", file=sys.stderr)
