@@ -11,6 +11,19 @@ import sys
 import json
 import argparse
 import multiprocessing
+
+def safe_string(text):
+    """安全地处理可能包含特殊字符的字符串"""
+    if text is None:
+        return ""
+    try:
+        # 确保是字符串
+        if not isinstance(text, str):
+            text = str(text)
+        # 移除或替换可能导致编码问题的字符
+        return text.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+    except Exception:
+        return repr(text)  # 如果还有问题，就返回repr形式
 from pathlib import Path
 
 # 清除命令行参数，避免PaddleOCR参数冲突，但保留我们自己的参数
@@ -366,21 +379,21 @@ def main():
                     for item in subtitle_data:
                         subtitles.append({
                             "index": item.get("index", 0),
-                            "start_time": item.get("start_time", ""),
-                            "end_time": item.get("end_time", ""),
-                            "text": item.get("text", ""),
+                            "start_time": safe_string(item.get("start_time", "")),
+                            "end_time": safe_string(item.get("end_time", "")),
+                            "text": safe_string(item.get("text", "")),
                             "position": item.get("position")
                         })
             except Exception as e:
                 print(f"读取JSON字幕文件失败: {e}", file=sys.stderr)
         
-        # 输出结果
+        # 输出结果，确保所有字符串都是安全的
         result = {
             "success": True,
             "subtitles": subtitles,
-            "output_files": output_files,
+            "output_files": {k: safe_string(v) for k, v in output_files.items()},
             "video_info": {
-                "path": args.video_path,
+                "path": safe_string(args.video_path),
                 "frame_count": extractor.frame_count,
                 "fps": extractor.fps,
                 "width": extractor.frame_width,
@@ -388,25 +401,42 @@ def main():
             }
         }
         
-        # 输出结果到标准输出
+        # 输出结果到标准输出，确保编码正确
         print("###RESULT_START###")
-        print(json.dumps(result, ensure_ascii=False))
+        try:
+            # 在Windows上使用ensure_ascii=True避免编码问题
+            print(json.dumps(result, ensure_ascii=True))
+        except UnicodeEncodeError:
+            # 如果仍有编码问题，则转换为UTF-8字节然后解码
+            result_json = json.dumps(result, ensure_ascii=True)
+            print(result_json)
         print("###RESULT_END###")
         
     except Exception as e:
         # 输出错误结果
         error_result = {
             "success": False,
-            "error": str(e)
+            "error": safe_string(str(e))
         }
         print("###RESULT_START###")
-        print(json.dumps(error_result, ensure_ascii=False))
+        try:
+            # 在Windows上使用ensure_ascii=True避免编码问题
+            print(json.dumps(error_result, ensure_ascii=True))
+        except UnicodeEncodeError:
+            # 如果仍有编码问题，则转换为UTF-8字节然后解码
+            error_json = json.dumps(error_result, ensure_ascii=True)
+            print(error_json)
         print("###RESULT_END###")
         
         # 也输出到stderr用于调试
         import traceback
-        print(f"错误详情: {e}", file=sys.stderr)
-        print(traceback.format_exc(), file=sys.stderr)
+        try:
+            print(f"错误详情: {e}", file=sys.stderr)
+            print(traceback.format_exc(), file=sys.stderr)
+        except UnicodeEncodeError:
+            # 如果stderr也有编码问题，则使用ASCII安全的方式
+            print(f"错误详情: {repr(str(e))}", file=sys.stderr)
+            print("traceback信息包含非ASCII字符，已跳过", file=sys.stderr)
 
 if __name__ == "__main__":
     main()

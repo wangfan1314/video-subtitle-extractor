@@ -70,13 +70,18 @@ def extract_subtitles_safe(video_path, subtitle_area=None, language="ch", mode="
                 print(f"输出流读取错误: {e}")
             return output_lines
         
-        # 启动子进程
+        # 启动子进程，确保编码正确
+        import platform
+        encoding = 'utf-8' if platform.system() != 'Windows' else 'utf-8'
+        
         process = subprocess.Popen(
             cmd,
             cwd=current_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding=encoding,
+            errors='replace',  # 遇到编码错误时替换为特殊字符
             bufsize=1,
             universal_newlines=True
         )
