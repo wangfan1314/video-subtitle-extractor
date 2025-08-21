@@ -505,15 +505,15 @@ def main():
         }
         
         # 输出结果到标准输出，确保编码正确
-        # print("###RESULT_START###")
-        # try:
-        #     # 在Windows上使用ensure_ascii=True避免编码问题
-        #     print(json.dumps(result, ensure_ascii=True))
-        # except UnicodeEncodeError:
-        #     # 如果仍有编码问题，则转换为UTF-8字节然后解码
-        #     result_json = json.dumps(result, ensure_ascii=True)
-        #     print(result_json)
-        # print("###RESULT_END###")
+        print("###RESULT_START###")
+        try:
+            # 在Windows上使用ensure_ascii=True避免编码问题
+            print(json.dumps(result, ensure_ascii=True))
+        except UnicodeEncodeError:
+            # 如果仍有编码问题，则转换为UTF-8字节然后解码
+            result_json = json.dumps(result, ensure_ascii=True)
+            print(result_json)
+        print("###RESULT_END###")
         
     except Exception as e:
         # 输出错误结果
