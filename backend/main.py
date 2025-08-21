@@ -1073,6 +1073,62 @@ class SubtitleExtractor:
             for sub in subs:
                 f.write(f'{sub.text}\n')
 
+    def _create_subtitle_entry(self, index, start_frame_no, end_frame_no, text, coordinate_str=None):
+        """
+        创建统一格式的字幕条目
+        """
+        # 计算时间（秒）- 使用与SRT相同的方法
+        start_time_sec = self._frame_to_seconds(start_frame_no)
+        end_time_sec = self._frame_to_seconds(end_frame_no)
+        
+        # 获取当前语言的label，默认为'CN'
+        current_language = getattr(self, 'actual_language', 'ch')
+        language_label_map = {
+            'ch': 'CN',
+            'chinese_cht': 'CHT', 
+            'en': 'EN',
+            'korean': 'KR',
+            'japan': 'JP',
+            'thai': 'TH',
+            'ar': 'AR',
+            'es': 'ES',
+            'fr': 'FR',
+            'de': 'DE',
+            'ru': 'RU',
+            'pt': 'PT',
+            'it': 'IT',
+            'vi': 'VI'
+        }
+        label = language_label_map.get(current_language, 'CN')
+        
+        # 解析坐标信息
+        rect = [0, 0, 0, 0]  # 默认坐标
+        if coordinate_str:
+            try:
+                xmin, xmax, ymin, ymax = map(int, coordinate_str.strip('()').split(', '))
+                
+                # 将坐标转换到1000x1000范围内
+                from backend.tools.constant import transform_coordinates_to_1000x1000
+                transformed_left, transformed_top, transformed_right, transformed_bottom = transform_coordinates_to_1000x1000(
+                    xmin, ymin, xmax, ymax, 
+                    self.frame_width, 
+                    self.frame_height
+                )
+                rect = [transformed_left, transformed_top, transformed_right, transformed_bottom]
+            except (ValueError, IndexError):
+                pass  # 使用默认坐标
+        
+        return {
+            "idx": index,  # 从0开始
+            "rect": rect,
+            "text": text.strip(),
+            "label": label,
+            "start_frame": start_frame_no,
+            "end_frame": end_frame_no,
+            "start_time": start_time_sec,
+            "end_time": end_time_sec
+        }
+
     def generate_subtitle_json(self):
         """
         生成JSON格式的字幕文件，包含字幕区域坐标信息
@@ -1116,11 +1172,14 @@ class SubtitleExtractor:
                 print(f"错误：SRT文件也不存在: {srt_filename}")
                 return
         
+        # 统一的JSON生成逻辑
+        subtitle_content = self._remove_duplicate_subtitle()
+        json_filename = os.path.join(os.path.splitext(self.video_path)[0] + '.json')
+        
+        subtitle_data = []
+        
         if not self.use_vsf:
-            subtitle_content = self._remove_duplicate_subtitle()
-            json_filename = os.path.join(os.path.splitext(self.video_path)[0] + '.json')
-            
-            subtitle_data = []
+            # 非VSF模式：直接从raw数据生成
             for index, content in enumerate(subtitle_content):
                 start_frame_no = int(content[0])
                 end_frame_no = int(content[1])
@@ -1129,78 +1188,15 @@ class SubtitleExtractor:
                 if abs(end_frame_no - start_frame_no) < self.fps:
                     end_frame_no = start_frame_no + int(self.fps)
                 
-                # 计算时间（秒）- 使用与SRT相同的方法
-                start_time_sec = self._frame_to_seconds(start_frame_no)
-                end_time_sec = self._frame_to_seconds(end_frame_no)
-                
                 frame_content = content[2]
+                coordinate_str = content[3] if len(content) > 3 else None
                 
-                # 获取当前语言的label，默认为'CN'
-                current_language = getattr(self, 'actual_language', 'ch')
-                language_label_map = {
-                    'ch': 'CN',
-                    'chinese_cht': 'CHT', 
-                    'en': 'EN',
-                    'korean': 'KR',
-                    'japan': 'JP',
-                    'thai': 'TH',
-                    'ar': 'AR',
-                    'es': 'ES',
-                    'fr': 'FR',
-                    'de': 'DE',
-                    'ru': 'RU',
-                    'pt': 'PT',
-                    'it': 'IT',
-                    'vi': 'VI'
-                }
-                label = language_label_map.get(current_language, 'CN')
-                
-                # 解析坐标信息
-                coordinate_str = content[3].strip('()')
-                try:
-                    xmin, xmax, ymin, ymax = map(int, coordinate_str.split(', '))
-                    
-                    # 将坐标转换到1000x1000范围内
-                    from backend.tools.constant import transform_coordinates_to_1000x1000
-                    transformed_left, transformed_top, transformed_right, transformed_bottom = transform_coordinates_to_1000x1000(
-                        xmin, ymin, xmax, ymax, 
-                        self.frame_width, 
-                        self.frame_height
-                    )
-                    
-                    subtitle_entry = {
-                        "idx": index,  # 从0开始
-                        "rect": [transformed_left, transformed_top, transformed_right, transformed_bottom],
-                        "text": frame_content.strip(),
-                        "label": label,
-                        "start_frame": start_frame_no,
-                        "end_frame": end_frame_no,
-                        "start_time": start_time_sec,
-                        "end_time": end_time_sec
-                    }
-                    subtitle_data.append(subtitle_entry)
-                except (ValueError, IndexError):
-                    # 如果坐标解析失败，添加没有位置信息的条目
-                    subtitle_entry = {
-                        "idx": index,  # 从0开始
-                        "rect": [0, 0, 0, 0],  # 默认坐标
-                        "text": frame_content.strip(),
-                        "label": label,
-                        "start_frame": start_frame_no,
-                        "end_frame": end_frame_no,
-                        "start_time": start_time_sec,
-                        "end_time": end_time_sec
-                    }
-                    subtitle_data.append(subtitle_entry)
-            
-            # 写入JSON文件
-            with open(json_filename, mode='w', encoding='utf-8') as f:
-                import json
-                json.dump(subtitle_data, f, ensure_ascii=False, indent=2)
-            
-            print(f"JSON字幕文件已生成: {json_filename}")
+                subtitle_entry = self._create_subtitle_entry(
+                    index, start_frame_no, end_frame_no, frame_content, coordinate_str
+                )
+                subtitle_data.append(subtitle_entry)
         else:
-            # VSF模式下的JSON生成
+            # VSF模式：结合SRT时间轴和raw数据内容
             if not os.path.exists(self.vsf_subtitle):
                 print(f"警告：VSF字幕文件不存在: {self.vsf_subtitle}")
                 return
@@ -1211,61 +1207,38 @@ class SubtitleExtractor:
             for sub in subs:
                 sub.start.no = self._timestamp_to_frameno(sub.start.ordinal)
                 
-            subtitle_content = self._remove_duplicate_subtitle()
             subtitle_content_start_map = {int(a[0]): a for a in subtitle_content}
             
-            json_filename = os.path.join(os.path.splitext(self.video_path)[0] + '.json')
-            subtitle_data = []
-            
-            index = 1
+            index = 0
             for sub in subs:
                 found = sub.start.no in subtitle_content_start_map
                 if found or not config.DELETE_EMPTY_TIMESTAMP:
                     if found:
                         subtitle_content_line = subtitle_content_start_map[sub.start.no]
                         text = subtitle_content_line[2].strip()
-                        
-                        # 解析坐标信息
-                        coordinate_str = subtitle_content_line[3].strip('()')
-                        try:
-                            xmin, xmax, ymin, ymax = map(int, coordinate_str.split(', '))
-                            
-                            subtitle_entry = {
-                                "index": index,
-                                "start_time": str(sub.start),
-                                "end_time": str(sub.end),
-                                "text": text,
-                                "position": {
-                                    "left": xmin,
-                                    "right": xmax,
-                                    "top": ymin,
-                                    "bottom": ymax
-                                }
-                            }
-                        except (ValueError, IndexError):
-                            subtitle_entry = {
-                                "index": index,
-                                "start_time": str(sub.start),
-                                "end_time": str(sub.end),
-                                "text": text
-                            }
+                        coordinate_str = subtitle_content_line[3] if len(subtitle_content_line) > 3 else None
                     else:
-                        subtitle_entry = {
-                            "index": index,
-                            "start_time": str(sub.start),
-                            "end_time": str(sub.end),
-                            "text": ""
-                        }
+                        # 保留时间轴但没有文本内容
+                        text = ""
+                        coordinate_str = None
                     
+                    # 获取帧号信息
+                    start_frame_no = sub.start.no
+                    # 计算结束帧号
+                    end_frame_no = self._timestamp_to_frameno(sub.end.ordinal)
+                    
+                    subtitle_entry = self._create_subtitle_entry(
+                        index, start_frame_no, end_frame_no, text, coordinate_str
+                    )
                     subtitle_data.append(subtitle_entry)
                     index += 1
-            
-            # 写入JSON文件
-            with open(json_filename, mode='w', encoding='utf-8') as f:
-                import json
-                json.dump(subtitle_data, f, ensure_ascii=False, indent=2)
-            
-            print(f"JSON字幕文件已生成: {json_filename}")
+        
+        # 统一写入JSON文件
+        with open(json_filename, mode='w', encoding='utf-8') as f:
+            import json
+            json.dump(subtitle_data, f, ensure_ascii=False, indent=2)
+        
+        print(f"JSON字幕文件已生成: {json_filename}")
 
 
 if __name__ == '__main__':
