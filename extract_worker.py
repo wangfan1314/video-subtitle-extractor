@@ -80,6 +80,7 @@ class CustomSubtitleExtractor:
         self.language = language
         self.mode = mode
         self.video_name = os.path.splitext(os.path.basename(video_path))[0]
+        self._video_cap = None  # 缓存VideoCapture对象
         
         # 设置输出目录
         self.temp_output_dir = os.path.join(output_base_dir, f"{self.video_name}_subtitle_output")
@@ -110,6 +111,39 @@ class CustomSubtitleExtractor:
         # 重新创建目录（原始构造函数可能已经创建了默认目录）
         os.makedirs(self.frame_output_dir, exist_ok=True)
         os.makedirs(self.subtitle_output_dir, exist_ok=True)
+    
+    def frame_to_seconds(self, frame_no):
+        """
+        将帧号转换为秒数，使用与SRT文件生成相同的方法
+        """
+        try:
+            import cv2
+            if self._video_cap is None:
+                self._video_cap = cv2.VideoCapture(self.video_path)
+            
+            # 设置当前帧号
+            self._video_cap.set(cv2.CAP_PROP_POS_FRAMES, frame_no)
+            ret, _ = self._video_cap.read()
+            
+            if ret:
+                milliseconds = self._video_cap.get(cv2.CAP_PROP_POS_MSEC)
+                if milliseconds > 0:
+                    return round(milliseconds / 1000.0, 2)
+            
+            # 如果获取失败，使用帧率计算
+            return round(frame_no / self.extractor.fps, 2)
+        except Exception as e:
+            print(f"时间转换失败: {e}", file=sys.stderr)
+            # 回退到简单计算
+            return round(frame_no / self.extractor.fps, 2)
+    
+    def __del__(self):
+        """析构函数，释放视频资源"""
+        if self._video_cap is not None:
+            try:
+                self._video_cap.release()
+            except:
+                pass
         
         # 重写需要修复路径的方法
         self.extractor.generate_subtitle_json = self._generate_subtitle_json_custom
@@ -204,9 +238,9 @@ class CustomSubtitleExtractor:
             if abs(end_frame_no - start_frame_no) < self.extractor.fps:
                 end_frame_no = start_frame_no + int(self.extractor.fps)
             
-            # 计算时间（秒）
-            start_time_sec = round(start_frame_no / self.extractor.fps, 2)
-            end_time_sec = round(end_frame_no / self.extractor.fps, 2)
+            # 计算时间（秒）- 使用与SRT相同的方法
+            start_time_sec = self.frame_to_seconds(start_frame_no)
+            end_time_sec = self.frame_to_seconds(end_frame_no)
             
             frame_content = content[2]
             
