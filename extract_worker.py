@@ -486,41 +486,16 @@ def main():
             try:
                 with open(json_files[0], 'r', encoding='utf-8') as f:
                     subtitle_data = json.load(f)
+                    # 直接使用新的JSON格式，确保字符串安全
+                    subtitles = []
                     for item in subtitle_data:
-                        # 适配新的JSON数据结构
-                        rect = item.get("rect", [0, 0, 0, 0])
-                        position = None
-                        if len(rect) >= 4:
-                            # rect格式：[left, top, right, bottom]
-                            position = {
-                                "left": rect[0],
-                                "top": rect[1], 
-                                "right": rect[2],
-                                "bottom": rect[3]
-                            }
-                        
-                        # 时间格式转换：从秒数转回时间码格式
-                        start_time_sec = item.get("start_time", 0)
-                        end_time_sec = item.get("end_time", 0)
-                        
-                        def sec_to_timecode(seconds):
-                            """将秒数转换为SRT时间码格式"""
-                            hours = int(seconds // 3600)
-                            minutes = int((seconds % 3600) // 60)
-                            secs = int(seconds % 60)
-                            millisecs = int((seconds % 1) * 1000)
-                            return f"{hours:02d}:{minutes:02d}:{secs:02d},{millisecs:03d}"
-                        
-                        start_time_str = sec_to_timecode(start_time_sec) if isinstance(start_time_sec, (int, float)) else str(start_time_sec)
-                        end_time_str = sec_to_timecode(end_time_sec) if isinstance(end_time_sec, (int, float)) else str(end_time_sec)
-                        
-                        subtitles.append({
-                            "index": item.get("idx", 0) + 1,  # idx从0开始，转换为从1开始的index
-                            "start_time": safe_string(start_time_str),
-                            "end_time": safe_string(end_time_str),
-                            "text": safe_string(item.get("text", "")),
-                            "position": position
-                        })
+                        safe_item = {}
+                        for key, value in item.items():
+                            if isinstance(value, str):
+                                safe_item[key] = safe_string(value)
+                            else:
+                                safe_item[key] = value
+                        subtitles.append(safe_item)
             except Exception as e:
                 print(f"读取JSON字幕文件失败: {e}", file=sys.stderr)
         
