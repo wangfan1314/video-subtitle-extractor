@@ -1073,13 +1073,15 @@ class SubtitleExtractor:
             for sub in subs:
                 f.write(f'{sub.text}\n')
 
-    def _create_subtitle_entry(self, index, start_frame_no, end_frame_no, text, coordinate_str=None):
+    def _create_subtitle_entry(self, index, start_frame_no, end_frame_no, text, coordinate_str=None, start_time_sec=None, end_time_sec=None):
         """
         创建统一格式的字幕条目
         """
-        # 计算时间（秒）- 使用与SRT相同的方法
-        start_time_sec = self._frame_to_seconds(start_frame_no)
-        end_time_sec = self._frame_to_seconds(end_frame_no)
+        # 计算时间（秒）- 如果没有直接提供时间，则从帧号计算
+        if start_time_sec is None:
+            start_time_sec = self._frame_to_seconds(start_frame_no)
+        if end_time_sec is None:
+            end_time_sec = self._frame_to_seconds(end_frame_no)
         
         # 获取当前语言的label，默认为'CN'
         current_language = getattr(self, 'actual_language', 'ch')
@@ -1222,13 +1224,17 @@ class SubtitleExtractor:
                         text = ""
                         coordinate_str = None
                     
-                    # 获取帧号信息
+                    # 直接使用SRT时间戳，转换为秒数
+                    start_time_sec = round(sub.start.ordinal / 1000.0, 2)
+                    end_time_sec = round(sub.end.ordinal / 1000.0, 2)
+                    
+                    # 获取帧号信息（用于metadata）
                     start_frame_no = sub.start.no
-                    # 计算结束帧号
                     end_frame_no = self._timestamp_to_frameno(sub.end.ordinal)
                     
                     subtitle_entry = self._create_subtitle_entry(
-                        index, start_frame_no, end_frame_no, text, coordinate_str
+                        index, start_frame_no, end_frame_no, text, coordinate_str,
+                        start_time_sec, end_time_sec
                     )
                     subtitle_data.append(subtitle_entry)
                     index += 1
