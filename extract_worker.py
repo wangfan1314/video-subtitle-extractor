@@ -24,6 +24,47 @@ def safe_string(text):
         return text.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
     except Exception:
         return repr(text)  # 如果还有问题，就返回repr形式
+
+def transform_coordinates_to_1000x1000(left, top, right, bottom, video_width, video_height):
+    """
+    将原始视频坐标转换到1000x1000范围内
+    
+    Args:
+        left, top, right, bottom: 原始坐标
+        video_width, video_height: 视频分辨率
+    
+    Returns:
+        tuple: (new_left, new_top, new_right, new_bottom)
+    
+    转换规则:
+    - left和top向下取整 (使用int())
+    - right和bottom向上取整 (使用math.ceil())
+    """
+    import math
+    
+    # 计算缩放比例
+    scale_x = 1000.0 / video_width
+    scale_y = 1000.0 / video_height
+    
+    # 转换坐标
+    new_left = int(left * scale_x)          # 向下取整
+    new_top = int(top * scale_y)            # 向下取整
+    new_right = math.ceil(right * scale_x)  # 向上取整
+    new_bottom = math.ceil(bottom * scale_y) # 向上取整
+    
+    # 确保坐标在有效范围内
+    new_left = max(0, min(999, new_left))
+    new_top = max(0, min(999, new_top))
+    new_right = max(1, min(1000, new_right))
+    new_bottom = max(1, min(1000, new_bottom))
+    
+    # 确保right > left 和 bottom > top
+    if new_right <= new_left:
+        new_right = new_left + 1
+    if new_bottom <= new_top:
+        new_bottom = new_top + 1
+    
+    return new_left, new_top, new_right, new_bottom
 from pathlib import Path
 
 # 清除命令行参数，避免PaddleOCR参数冲突，但保留我们自己的参数
@@ -196,10 +237,18 @@ class CustomSubtitleExtractor:
             try:
                 xmin, xmax, ymin, ymax = map(int, coordinate_str.split(', '))
                 
+                # 将坐标转换到1000x1000范围内
+                # 坐标格式: left=xmin, top=ymin, right=xmax, bottom=ymax
+                transformed_left, transformed_top, transformed_right, transformed_bottom = transform_coordinates_to_1000x1000(
+                    xmin, ymin, xmax, ymax, 
+                    self.extractor.frame_width, 
+                    self.extractor.frame_height
+                )
+                
                 # 新的数据结构：rect格式为[left, top, right, bottom]
                 subtitle_entry = {
                     "idx": index,  # 从0开始
-                    "rect": [xmin, ymin, xmax, ymax],  # [left, top, right, bottom]
+                    "rect": [transformed_left, transformed_top, transformed_right, transformed_bottom],  # 转换后的坐标
                     "text": frame_content.strip(),
                     "label": label,
                     "start_frame": start_frame_no,
@@ -456,15 +505,15 @@ def main():
         }
         
         # 输出结果到标准输出，确保编码正确
-        print("###RESULT_START###")
-        try:
-            # 在Windows上使用ensure_ascii=True避免编码问题
-            print(json.dumps(result, ensure_ascii=True))
-        except UnicodeEncodeError:
-            # 如果仍有编码问题，则转换为UTF-8字节然后解码
-            result_json = json.dumps(result, ensure_ascii=True)
-            print(result_json)
-        print("###RESULT_END###")
+        # print("###RESULT_START###")
+        # try:
+        #     # 在Windows上使用ensure_ascii=True避免编码问题
+        #     print(json.dumps(result, ensure_ascii=True))
+        # except UnicodeEncodeError:
+        #     # 如果仍有编码问题，则转换为UTF-8字节然后解码
+        #     result_json = json.dumps(result, ensure_ascii=True)
+        #     print(result_json)
+        # print("###RESULT_END###")
         
     except Exception as e:
         # 输出错误结果
