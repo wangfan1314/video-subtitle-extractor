@@ -771,6 +771,27 @@ class SubtitleExtractor:
 
     def _frameno_to_milliseconds(self, frame_no):
         return float(int(frame_no / self.fps * 1000))
+    
+    def _frame_to_seconds(self, frame_no):
+        """
+        将帧号转换为秒数，使用与SRT文件生成相同的方法
+        """
+        try:
+            # 设置当前帧号
+            self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, frame_no)
+            ret, _ = self.video_cap.read()
+            
+            if ret:
+                milliseconds = self.video_cap.get(cv2.CAP_PROP_POS_MSEC)
+                if milliseconds > 0:
+                    return round(milliseconds / 1000.0, 2)
+            
+            # 如果获取失败，使用帧率计算
+            return round(frame_no / self.fps, 2)
+        except Exception as e:
+            print(f"时间转换失败: {e}", file=sys.stderr)
+            # 回退到简单计算
+            return round(frame_no / self.fps, 2)
 
     def _remove_duplicate_subtitle(self):
         """
@@ -1068,11 +1089,19 @@ class SubtitleExtractor:
                 subtitle_data = []
                 
                 for sub in subs:
+                    # 转换时间为秒数
+                    start_seconds = sub.start.ordinal / 1000.0
+                    end_seconds = sub.end.ordinal / 1000.0
+                    
                     subtitle_entry = {
-                        "index": sub.index,
-                        "start_time": str(sub.start),
-                        "end_time": str(sub.end),
-                        "text": sub.text.strip()
+                        "idx": sub.index - 1,  # 转换为从0开始的索引
+                        "rect": [0, 0, 0, 0],  # SRT文件没有坐标信息，使用默认值
+                        "text": sub.text.strip(),
+                        "label": "CN",  # 默认标签
+                        "start_frame": 0,  # SRT文件没有帧信息，使用默认值
+                        "end_frame": 0,
+                        "start_time": round(start_seconds, 2),
+                        "end_time": round(end_seconds, 2)
                     }
                     subtitle_data.append(subtitle_entry)
                 
@@ -1093,42 +1122,74 @@ class SubtitleExtractor:
             
             subtitle_data = []
             for index, content in enumerate(subtitle_content):
-                line_code = index + 1
-                frame_start = self._frame_to_timecode(int(content[0]))
+                start_frame_no = int(content[0])
+                end_frame_no = int(content[1])
                 
                 # 比较起始帧号与结束帧号， 如果字幕持续时间不足1秒，则将显示时间设为1s
-                if abs(int(content[1]) - int(content[0])) < self.fps:
-                    frame_end = self._frame_to_timecode(int(int(content[0]) + self.fps))
-                else:
-                    frame_end = self._frame_to_timecode(int(content[1]))
+                if abs(end_frame_no - start_frame_no) < self.fps:
+                    end_frame_no = start_frame_no + int(self.fps)
+                
+                # 计算时间（秒）- 使用与SRT相同的方法
+                start_time_sec = self._frame_to_seconds(start_frame_no)
+                end_time_sec = self._frame_to_seconds(end_frame_no)
                 
                 frame_content = content[2]
+                
+                # 获取当前语言的label，默认为'CN'
+                current_language = getattr(self, 'actual_language', 'ch')
+                language_label_map = {
+                    'ch': 'CN',
+                    'chinese_cht': 'CHT', 
+                    'en': 'EN',
+                    'korean': 'KR',
+                    'japan': 'JP',
+                    'thai': 'TH',
+                    'ar': 'AR',
+                    'es': 'ES',
+                    'fr': 'FR',
+                    'de': 'DE',
+                    'ru': 'RU',
+                    'pt': 'PT',
+                    'it': 'IT',
+                    'vi': 'VI'
+                }
+                label = language_label_map.get(current_language, 'CN')
                 
                 # 解析坐标信息
                 coordinate_str = content[3].strip('()')
                 try:
                     xmin, xmax, ymin, ymax = map(int, coordinate_str.split(', '))
                     
+                    # 将坐标转换到1000x1000范围内
+                    from backend.tools.constant import transform_coordinates_to_1000x1000
+                    transformed_left, transformed_top, transformed_right, transformed_bottom = transform_coordinates_to_1000x1000(
+                        xmin, ymin, xmax, ymax, 
+                        self.frame_width, 
+                        self.frame_height
+                    )
+                    
                     subtitle_entry = {
-                        "index": line_code,
-                        "start_time": frame_start,
-                        "end_time": frame_end,
+                        "idx": index,  # 从0开始
+                        "rect": [transformed_left, transformed_top, transformed_right, transformed_bottom],
                         "text": frame_content.strip(),
-                        "position": {
-                            "left": xmin,
-                            "right": xmax,
-                            "top": ymin,
-                            "bottom": ymax
-                        }
+                        "label": label,
+                        "start_frame": start_frame_no,
+                        "end_frame": end_frame_no,
+                        "start_time": start_time_sec,
+                        "end_time": end_time_sec
                     }
                     subtitle_data.append(subtitle_entry)
                 except (ValueError, IndexError):
                     # 如果坐标解析失败，添加没有位置信息的条目
                     subtitle_entry = {
-                        "index": line_code,
-                        "start_time": frame_start,
-                        "end_time": frame_end,
-                        "text": frame_content.strip()
+                        "idx": index,  # 从0开始
+                        "rect": [0, 0, 0, 0],  # 默认坐标
+                        "text": frame_content.strip(),
+                        "label": label,
+                        "start_frame": start_frame_no,
+                        "end_frame": end_frame_no,
+                        "start_time": start_time_sec,
+                        "end_time": end_time_sec
                     }
                     subtitle_data.append(subtitle_entry)
             
