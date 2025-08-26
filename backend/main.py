@@ -619,17 +619,29 @@ class SubtitleExtractor:
             srt_filename = os.path.join(os.path.splitext(self.video_path)[0] + '.srt')
             # 保存持续时间不足1秒的字幕行，用于后续处理
             post_process_subtitle = []
+            line_code = 0  # 实际输出的行号计数器
+            
             with open(srt_filename, mode='w', encoding='utf-8') as f:
                 for index, content in enumerate(subtitle_content):
-                    line_code = index + 1
                     frame_start = self._frame_to_timecode(int(content[0]))
                     # 比较起始帧号与结束帧号， 如果字幕持续时间不足1秒，则将显示时间设为1s
                     if abs(int(content[1]) - int(content[0])) < self.fps:
                         frame_end = self._frame_to_timecode(int(int(content[0]) + self.fps))
-                        post_process_subtitle.append(line_code)
                     else:
                         frame_end = self._frame_to_timecode(int(content[1]))
                     frame_content = content[2]
+                    
+                    # 检查字幕内容是否为空，如果为空且设置了删除空字幕，则跳过
+                    if config.DELETE_EMPTY_TIMESTAMP and not frame_content.strip():
+                        continue
+                    
+                    # 只有在输出字幕时才增加行号
+                    line_code += 1
+                    
+                    # 记录持续时间不足1秒的字幕行
+                    if abs(int(content[1]) - int(content[0])) < self.fps:
+                        post_process_subtitle.append(line_code)
+                    
                     subtitle_line = f'{line_code}\n{frame_start} --> {frame_end}\n{frame_content}\n'
                     f.write(subtitle_line)
             print(f"[NO-VSF]{config.interface_config['Main']['SubLocation']} {srt_filename}")
@@ -653,13 +665,18 @@ class SubtitleExtractor:
             if found:
                 subtitle_content_line = subtitle_content_start_map[sub.start.no]
                 sub.text = subtitle_content_line[2]
+                
+                # 检查字幕内容是否为空，如果为空且设置了删除空字幕，则跳过
+                if config.DELETE_EMPTY_TIMESTAMP and not sub.text.strip():
+                    continue
+                
                 end_no = int(subtitle_content_line[1])
                 sub.end = sub_no_map[end_no].end if end_no in sub_no_map else sub.end
                 sub.index = len(final_subtitles) + 1
                 final_subtitles.append(sub)
 
             if not found and not config.DELETE_EMPTY_TIMESTAMP:
-                # 保留时间轴
+                # 保留时间轴但没有文本内容
                 sub.text = ""
                 sub.index = len(final_subtitles) + 1
                 final_subtitles.append(sub)
@@ -1147,12 +1164,16 @@ class SubtitleExtractor:
                 subtitle_data = []
                 
                 for sub in subs:
+                    # 检查字幕内容是否为空，如果为空且设置了删除空字幕，则跳过
+                    if config.DELETE_EMPTY_TIMESTAMP and not sub.text.strip():
+                        continue
+                    
                     # 转换时间为秒数
                     start_seconds = sub.start.ordinal / 1000.0
                     end_seconds = sub.end.ordinal / 1000.0
                     
                     subtitle_entry = {
-                        "idx": sub.index - 1,  # 转换为从0开始的索引
+                        "idx": len(subtitle_data),  # 使用当前数组长度作为索引
                         "rect": [0, 0, 0, 0],  # SRT文件没有坐标信息，使用默认值
                         "text": sub.text.strip(),
                         "label": "CN",  # 默认标签
@@ -1193,8 +1214,12 @@ class SubtitleExtractor:
                 frame_content = content[2]
                 coordinate_str = content[3] if len(content) > 3 else None
                 
+                # 检查字幕内容是否为空，如果为空且设置了删除空字幕，则跳过
+                if config.DELETE_EMPTY_TIMESTAMP and not frame_content.strip():
+                    continue
+                
                 subtitle_entry = self._create_subtitle_entry(
-                    index, start_frame_no, end_frame_no, frame_content, coordinate_str
+                    len(subtitle_data), start_frame_no, end_frame_no, frame_content, coordinate_str
                 )
                 subtitle_data.append(subtitle_entry)
         else:
@@ -1211,7 +1236,6 @@ class SubtitleExtractor:
                 
             subtitle_content_start_map = {int(a[0]): a for a in subtitle_content}
             
-            index = 0
             for sub in subs:
                 found = sub.start.no in subtitle_content_start_map
                 if found or not config.DELETE_EMPTY_TIMESTAMP:
@@ -1224,6 +1248,10 @@ class SubtitleExtractor:
                         text = ""
                         coordinate_str = None
                     
+                    # 检查字幕内容是否为空，如果为空且设置了删除空字幕，则跳过
+                    if config.DELETE_EMPTY_TIMESTAMP and not text.strip():
+                        continue
+                    
                     # 直接使用SRT时间戳，转换为秒数
                     start_time_sec = round(sub.start.ordinal / 1000.0, 2)
                     end_time_sec = round(sub.end.ordinal / 1000.0, 2)
@@ -1233,11 +1261,10 @@ class SubtitleExtractor:
                     end_frame_no = self._timestamp_to_frameno(sub.end.ordinal)
                     
                     subtitle_entry = self._create_subtitle_entry(
-                        index, start_frame_no, end_frame_no, text, coordinate_str,
+                        len(subtitle_data), start_frame_no, end_frame_no, text, coordinate_str,
                         start_time_sec, end_time_sec
                     )
                     subtitle_data.append(subtitle_entry)
-                    index += 1
         
         # 统一写入JSON文件
         with open(json_filename, mode='w', encoding='utf-8') as f:

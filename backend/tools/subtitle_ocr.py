@@ -96,13 +96,79 @@ def extract_subtitles(data, text_recogniser, img, raw_subtitle_file,
 
 def clean_subtitle_text(text):
     """
-    清理字幕文本，删除前后的空格
+    清理字幕文本，删除前后的空格，并过滤无效的单字符
     :param text: 原始字幕文本
-    :return: 清理后的字幕文本
+    :return: 清理后的字幕文本，如果是无效字符则返回空字符串
     """
-    if text:
-        return text.strip()
-    return text
+    if not text:
+        return text
+    
+    # 去除前后空格
+    cleaned = text.strip()
+    
+    # 如果清理后为空，直接返回
+    if not cleaned:
+        return ""
+    
+    # 如果只有一个字符，检查是否为无意义字符
+    if len(cleaned) == 1:
+        # 定义无意义的单字符列表
+        invalid_chars = {
+            '*', '-', '_', '=', '+', '|', '\\', '/', 
+            '.', ',', ';', ':', '!', '?', '~', '^',
+            '(', ')', '[', ']', '{', '}', '<', '>',
+            '@', '#', '$', '%', '&', '`', '\'', '"'
+        }
+        if cleaned in invalid_chars:
+            return ""  # 返回空字符串表示无效
+    
+    # 检查是否只包含重复的无意义字符（如"---"、"***"等）
+    if len(set(cleaned)) == 1:
+        char = cleaned[0]
+        invalid_chars = {'*', '-', '_', '=', '+', '|', '.', '~', '^', '#'}
+        if char in invalid_chars:
+            return ""  # 返回空字符串表示无效
+    
+    return cleaned
+
+
+def is_valid_subtitle_line(text):
+    """
+    校验字幕行是否有效
+    过滤掉只包含空格、单个无意义字符的行
+    :param text: 字幕文本
+    :return: True表示有效，False表示无效
+    """
+    if not text:
+        return False
+    
+    # 去除前后空格
+    stripped_text = text.strip()
+    
+    # 空字符串无效
+    if not stripped_text:
+        return False
+    
+    # 只有一个字符的情况，检查是否为无意义字符
+    if len(stripped_text) == 1:
+        # 定义无意义的单字符列表
+        invalid_chars = {
+            '*', '-', '_', '=', '+', '|', '\\', '/', 
+            '.', ',', ';', ':', '!', '?', '~', '^',
+            '(', ')', '[', ']', '{', '}', '<', '>',
+            '@', '#', '$', '%', '&', '`', '\'', '"'
+        }
+        if stripped_text in invalid_chars:
+            return False
+    
+    # 检查是否只包含重复的无意义字符（如"---"、"***"等）
+    if len(set(stripped_text)) == 1:
+        char = stripped_text[0]
+        invalid_chars = {'*', '-', '_', '=', '+', '|', '.', '~', '^', '#'}
+        if char in invalid_chars:
+            return False
+    
+    return True
 
 
 def merge_multiline_subtitles_entries(valid_entries):
@@ -135,9 +201,57 @@ def merge_multiline_subtitles_entries(valid_entries):
         max(all_ymax)   # 最大的ymax
     )
 
-    # 第三列：合并字幕文本，用\N连接（先清理每行文本的前后空格）
+    # 第三列：根据垂直位置智能合并字幕文本
     cleaned_texts = [clean_subtitle_text(entry['text']) for entry in valid_entries]
-    merged_text = '\\N'.join(cleaned_texts)
+    
+    # 按照y坐标（垂直位置）对条目进行排序，使用ymin作为排序基准
+    sorted_entries = sorted(
+        [(entry, cleaned_text) for entry, cleaned_text in zip(valid_entries, cleaned_texts)],
+        key=lambda x: x[0]['coordinate'][2]  # coordinate[2] 是 ymin
+    )
+    
+    # 分组：将垂直位置相近的字幕归为同一行
+    lines = []  # 每个元素是一行字幕的列表
+    current_line = []
+    last_ymin = None
+    
+    for entry, cleaned_text in sorted_entries:
+        current_ymin = entry['coordinate'][2]  # ymin
+        
+        if last_ymin is None or abs(current_ymin - last_ymin) <= 10:
+            # 同一行：y坐标相差10以内
+            current_line.append((entry, cleaned_text))
+        else:
+            # 新的一行：保存当前行，开始新行
+            if current_line:
+                lines.append(current_line)
+            current_line = [(entry, cleaned_text)]
+        
+        last_ymin = current_ymin
+    
+    # 添加最后一行
+    if current_line:
+        lines.append(current_line)
+    
+    # 合并文本：同一行内用空格连接，不同行用\N连接
+    line_texts = []
+    for line in lines:
+        # 按照x坐标（水平位置）对同一行内的字幕进行排序
+        line_sorted = sorted(line, key=lambda x: x[0]['coordinate'][0])  # coordinate[0] 是 xmin
+        # 同一行内的字幕用空格连接
+        line_text = ' '.join([text for _, text in line_sorted])
+        
+        # 校验这一行字幕是否有效
+        if is_valid_subtitle_line(line_text):
+            line_texts.append(line_text)
+        # 如果无效则跳过这一行
+    
+    # 如果所有行都被过滤掉了，返回空结果
+    if not line_texts:
+        return ''
+    
+    # 不同行之间用\N连接
+    merged_text = '\\N'.join(line_texts)
 
     # 构建合并后的结果
     merged_line = f'{merged_frame}\t{merged_coordinate}\t{merged_text}\n'
