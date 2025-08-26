@@ -810,6 +810,106 @@ class SubtitleExtractor:
             # 回退到简单计算
             return round(frame_no / self.fps, 2)
 
+    def _srt_time_to_json_time(self, srt_start_ordinal, srt_end_ordinal):
+        """
+        将SRT时间戳转换为JSON时间格式
+        Args:
+            srt_start_ordinal: SRT开始时间的毫秒数
+            srt_end_ordinal: SRT结束时间的毫秒数
+        Returns:
+            tuple: (start_time_json, end_time_json) - start_time向下取整，end_time向上取整
+        """
+        import math
+        
+        start_seconds = srt_start_ordinal / 1000.0
+        end_seconds = srt_end_ordinal / 1000.0
+        
+        # start_time向下取整（保留2位小数）
+        start_time_json = math.floor(start_seconds * 100) / 100
+        # end_time向上取整（保留2位小数）
+        end_time_json = math.ceil(end_seconds * 100) / 100
+        
+        return start_time_json, end_time_json
+
+    def _generate_json_from_srt(self, srt_filename, raw_subtitle_data=None):
+        """
+        从SRT文件生成JSON数据的通用方法
+        Args:
+            srt_filename: SRT文件路径
+            raw_subtitle_data: 原始字幕数据（用于获取坐标信息）
+        Returns:
+            list: JSON格式的字幕数据
+        """
+        if not os.path.exists(srt_filename):
+            return []
+        
+        # 打开SRT文件
+        subs = pysrt.open(srt_filename, encoding='utf-8')
+        subtitle_data = []
+        
+        # 如果有原始数据，建立文本到坐标的映射
+        text_to_coordinate = {}
+        if raw_subtitle_data:
+            for content in raw_subtitle_data:
+                if len(content) > 3:
+                    text = content[2].strip()
+                    coordinate_str = content[3]
+                    if text and coordinate_str:
+                        text_to_coordinate[text] = coordinate_str
+        
+        # 获取当前语言的label
+        current_language = getattr(self, 'actual_language', 'ch')
+        language_label_map = {
+            'ch': 'CN', 'chinese_cht': 'CHT', 'en': 'EN', 'korean': 'KR',
+            'japan': 'JP', 'thai': 'TH', 'ar': 'AR', 'es': 'ES',
+            'fr': 'FR', 'de': 'DE', 'ru': 'RU', 'pt': 'PT',
+            'it': 'IT', 'vi': 'VI'
+        }
+        label = language_label_map.get(current_language, 'CN')
+        
+        for sub in subs:
+            # 检查字幕内容是否为空，如果为空且设置了删除空字幕，则跳过
+            if config.DELETE_EMPTY_TIMESTAMP and not sub.text.strip():
+                continue
+            
+            # 使用SRT时间戳转换为JSON时间格式
+            start_time_json, end_time_json = self._srt_time_to_json_time(
+                sub.start.ordinal, sub.end.ordinal
+            )
+            
+            # 尝试获取坐标信息
+            rect = [0, 0, 0, 0]  # 默认坐标
+            text_clean = sub.text.strip()
+            
+            if text_clean in text_to_coordinate:
+                coordinate_str = text_to_coordinate[text_clean]
+                try:
+                    xmin, xmax, ymin, ymax = map(int, coordinate_str.strip('()').split(', '))
+                    # 将坐标转换到1000x1000范围内
+                    from backend.tools.constant import transform_coordinates_to_1000x1000
+                    transformed_left, transformed_top, transformed_right, transformed_bottom = transform_coordinates_to_1000x1000(
+                        xmin, ymin, xmax, ymax,
+                        self.frame_width,
+                        self.frame_height
+                    )
+                    rect = [transformed_left, transformed_top, transformed_right, transformed_bottom]
+                except (ValueError, IndexError):
+                    pass  # 使用默认坐标
+            
+            subtitle_entry = {
+                "idx": len(subtitle_data),
+                "rect": rect,
+                "text": text_clean,
+                "label": label,
+                "start_frame": 0,  # 这里可以改为实际帧号如果需要
+                "end_frame": 0,
+                "start_time": start_time_json,
+                "end_time": end_time_json
+            }
+            subtitle_data.append(subtitle_entry)
+        
+        return subtitle_data
+
     def _remove_duplicate_subtitle(self):
         """
         读取原始的raw txt，去除重复行，返回去除了重复后的字幕列表
@@ -1150,128 +1250,37 @@ class SubtitleExtractor:
 
     def generate_subtitle_json(self):
         """
-        生成JSON格式的字幕文件，包含字幕区域坐标信息
+        生成JSON格式的字幕文件，统一从SRT文件读取时间信息确保准确性
         """
-        # 首先检查原始字幕文件是否存在
-        if not os.path.exists(self.raw_subtitle_path):
-            print(f"警告：原始字幕文件不存在: {self.raw_subtitle_path}")
-            # 从已生成的SRT文件中获取字幕数据
-            srt_filename = os.path.join(os.path.splitext(self.video_path)[0] + '.srt')
-            if os.path.exists(srt_filename):
-                print(f"从已生成的SRT文件中提取字幕信息: {srt_filename}")
-                subs = pysrt.open(srt_filename, encoding='utf-8')
-                json_filename = os.path.join(os.path.splitext(self.video_path)[0] + '.json')
-                subtitle_data = []
-                
-                for sub in subs:
-                    # 检查字幕内容是否为空，如果为空且设置了删除空字幕，则跳过
-                    if config.DELETE_EMPTY_TIMESTAMP and not sub.text.strip():
-                        continue
-                    
-                    # 转换时间为秒数
-                    start_seconds = sub.start.ordinal / 1000.0
-                    end_seconds = sub.end.ordinal / 1000.0
-                    
-                    subtitle_entry = {
-                        "idx": len(subtitle_data),  # 使用当前数组长度作为索引
-                        "rect": [0, 0, 0, 0],  # SRT文件没有坐标信息，使用默认值
-                        "text": sub.text.strip(),
-                        "label": "CN",  # 默认标签
-                        "start_frame": 0,  # SRT文件没有帧信息，使用默认值
-                        "end_frame": 0,
-                        "start_time": round(start_seconds, 2),
-                        "end_time": round(end_seconds, 2)
-                    }
-                    subtitle_data.append(subtitle_entry)
-                
-                # 写入JSON文件
-                with open(json_filename, mode='w', encoding='utf-8') as f:
-                    import json
-                    json.dump(subtitle_data, f, ensure_ascii=False, indent=2)
-                
-                print(f"JSON字幕文件已生成: {json_filename}")
-                return
-            else:
-                print(f"错误：SRT文件也不存在: {srt_filename}")
-                return
-        
-        # 统一的JSON生成逻辑
-        subtitle_content = self._remove_duplicate_subtitle()
+        # 确定SRT文件路径
+        srt_filename = os.path.join(os.path.splitext(self.video_path)[0] + '.srt')
         json_filename = os.path.join(os.path.splitext(self.video_path)[0] + '.json')
         
-        subtitle_data = []
+        # 检查SRT文件是否存在
+        if not os.path.exists(srt_filename):
+            print(f"错误：SRT文件不存在: {srt_filename}")
+            print("请先生成SRT文件，然后再生成JSON文件")
+            return
         
-        if not self.use_vsf:
-            # 非VSF模式：直接从raw数据生成
-            for index, content in enumerate(subtitle_content):
-                start_frame_no = int(content[0])
-                end_frame_no = int(content[1])
-                
-                # 比较起始帧号与结束帧号， 如果字幕持续时间不足1秒，则将显示时间设为1s
-                if abs(end_frame_no - start_frame_no) < self.fps:
-                    end_frame_no = start_frame_no + int(self.fps)
-                
-                frame_content = content[2]
-                coordinate_str = content[3] if len(content) > 3 else None
-                
-                # 检查字幕内容是否为空，如果为空且设置了删除空字幕，则跳过
-                if config.DELETE_EMPTY_TIMESTAMP and not frame_content.strip():
-                    continue
-                
-                subtitle_entry = self._create_subtitle_entry(
-                    len(subtitle_data), start_frame_no, end_frame_no, frame_content, coordinate_str
-                )
-                subtitle_data.append(subtitle_entry)
+        # 获取原始字幕数据（用于坐标信息）
+        raw_subtitle_data = None
+        if os.path.exists(self.raw_subtitle_path):
+            raw_subtitle_data = self._remove_duplicate_subtitle()
         else:
-            # VSF模式：结合SRT时间轴和raw数据内容
-            if not os.path.exists(self.vsf_subtitle):
-                print(f"警告：VSF字幕文件不存在: {self.vsf_subtitle}")
-                return
-                
-            subs = pysrt.open(self.vsf_subtitle)
-            
-            # 为每个字幕设置no属性，避免AttributeError
-            for sub in subs:
-                sub.start.no = self._timestamp_to_frameno(sub.start.ordinal)
-                
-            subtitle_content_start_map = {int(a[0]): a for a in subtitle_content}
-            
-            for sub in subs:
-                found = sub.start.no in subtitle_content_start_map
-                if found or not config.DELETE_EMPTY_TIMESTAMP:
-                    if found:
-                        subtitle_content_line = subtitle_content_start_map[sub.start.no]
-                        text = subtitle_content_line[2].strip()
-                        coordinate_str = subtitle_content_line[3] if len(subtitle_content_line) > 3 else None
-                    else:
-                        # 保留时间轴但没有文本内容
-                        text = ""
-                        coordinate_str = None
-                    
-                    # 检查字幕内容是否为空，如果为空且设置了删除空字幕，则跳过
-                    if config.DELETE_EMPTY_TIMESTAMP and not text.strip():
-                        continue
-                    
-                    # 直接使用SRT时间戳，转换为秒数
-                    start_time_sec = round(sub.start.ordinal / 1000.0, 2)
-                    end_time_sec = round(sub.end.ordinal / 1000.0, 2)
-                    
-                    # 获取帧号信息（用于metadata）
-                    start_frame_no = sub.start.no
-                    end_frame_no = self._timestamp_to_frameno(sub.end.ordinal)
-                    
-                    subtitle_entry = self._create_subtitle_entry(
-                        len(subtitle_data), start_frame_no, end_frame_no, text, coordinate_str,
-                        start_time_sec, end_time_sec
-                    )
-                    subtitle_data.append(subtitle_entry)
+            print(f"警告：原始字幕文件不存在: {self.raw_subtitle_path}")
+            print("JSON文件将不包含坐标信息")
         
-        # 统一写入JSON文件
+        # 使用通用方法从SRT生成JSON数据
+        print(f"从SRT文件生成JSON: {srt_filename}")
+        subtitle_data = self._generate_json_from_srt(srt_filename, raw_subtitle_data)
+        
+        # 写入JSON文件
         with open(json_filename, mode='w', encoding='utf-8') as f:
             import json
             json.dump(subtitle_data, f, ensure_ascii=False, indent=2)
         
         print(f"JSON字幕文件已生成: {json_filename}")
+        print(f"共生成 {len(subtitle_data)} 条字幕记录")
 
 
 if __name__ == '__main__':
