@@ -27,7 +27,7 @@ sys.path.append(str(Path(__file__).parent))
 # 创建FastAPI应用
 app = FastAPI(
     title="视频字幕提取API",
-    description="提供视频硬编码字幕提取服务",
+    description="提供视频硬编码字幕提取服务和图片OCR文字识别服务",
     version="1.0.0"
 )
 
@@ -52,6 +52,21 @@ class SubtitleExtractionRequest(BaseModel):
             }
         }
 
+# 图片OCR请求模型
+class ImageOCRRequest(BaseModel):
+    image_url: str
+    language: Optional[str] = "ch"  # 识别语言
+    confidence_threshold: Optional[float] = 0.5  # 置信度阈值
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "image_url": "https://example.com/image.jpg",
+                "language": "ch",
+                "confidence_threshold": 0.5
+            }
+        }
+
 # 响应模型
 class SubtitleResult(BaseModel):
     index: int
@@ -67,6 +82,24 @@ class SubtitleExtractionResponse(BaseModel):
     subtitles: Optional[List[SubtitleResult]] = None
     output_files: Optional[Dict[str, str]] = None
     progress: Optional[Dict[str, Any]] = None
+
+# 图片OCR响应模型
+class OCRTextResult(BaseModel):
+    text: str
+    confidence: float
+    bbox: Dict[str, int]  # left, top, right, bottom, width, height
+    position: Dict[str, int]  # x, y (center point)
+
+class ImageOCRResponse(BaseModel):
+    success: bool
+    message: Optional[str] = None
+    error: Optional[str] = None
+    image_info: Optional[Dict[str, Any]] = None
+    ocr_results: Optional[List[OCRTextResult]] = None
+    text_count: Optional[int] = None
+    all_text: Optional[str] = None
+    language: Optional[str] = None
+    confidence_threshold: Optional[float] = None
 
 # 任务状态管理
 class TaskManager:
@@ -297,9 +330,91 @@ async def root():
             "extract": "POST /extract - 提取视频字幕",
             "status": "GET /status/{task_id} - 获取任务状态",
             "tasks": "GET /tasks - 列出所有任务",
-            "delete": "DELETE /tasks/{task_id} - 删除任务"
+            "delete": "DELETE /tasks/{task_id} - 删除任务",
+            "recognize_image": "POST /recognize-image - 识别图片中的文字"
         }
     }
+
+@app.post("/recognize-image", response_model=ImageOCRResponse)
+async def recognize_image_text(request: ImageOCRRequest):
+    """
+    识别图片中的文字
+    """
+    try:
+        # 导入图片OCR处理器
+        from image_ocr import recognize_image_text
+        
+        # 控制台输出请求信息
+        print("=" * 60)
+        print(f"🖼️  新的图片OCR识别请求")
+        print(f"📷 图片URL: {request.image_url}")
+        print(f"🌍 识别语言: {request.language}")
+        print(f"📊 置信度阈值: {request.confidence_threshold}")
+        print("=" * 60)
+        
+        # 执行图片OCR识别
+        result = recognize_image_text(
+            image_url=request.image_url,
+            language=request.language or "ch",
+            confidence_threshold=request.confidence_threshold or 0.5
+        )
+        
+        if result["success"]:
+            # 转换OCR结果为响应模型格式
+            ocr_results = []
+            for ocr_item in result["ocr_results"]:
+                ocr_results.append(OCRTextResult(
+                    text=ocr_item["text"],
+                    confidence=ocr_item["confidence"],
+                    bbox=ocr_item["bbox"],
+                    position=ocr_item["position"]
+                ))
+            
+            # 控制台输出成功信息
+            print("=" * 60)
+            print(f"✅ 图片OCR识别完成!")
+            print(f"📏 图片尺寸: {result['image_info']['width']}x{result['image_info']['height']}")
+            print(f"📝 识别到文字区域: {result['text_count']} 个")
+            print(f"📄 全部文字: {result['all_text'][:100]}{'...' if len(result['all_text']) > 100 else ''}")
+            print("=" * 60)
+            
+            return ImageOCRResponse(
+                success=True,
+                message="图片文字识别成功",
+                image_info=result["image_info"],
+                ocr_results=ocr_results,
+                text_count=result["text_count"],
+                all_text=result["all_text"],
+                language=result["language"],
+                confidence_threshold=result["confidence_threshold"]
+            )
+        else:
+            # 控制台输出失败信息
+            print("=" * 60)
+            print(f"❌ 图片OCR识别失败!")
+            print(f"📷 图片URL: {request.image_url}")
+            print(f"📋 失败原因: {result['error']}")
+            print("=" * 60)
+            
+            return ImageOCRResponse(
+                success=False,
+                error=result["error"],
+                message="图片文字识别失败"
+            )
+            
+    except Exception as e:
+        # 控制台输出异常信息
+        print("=" * 60)
+        print(f"💥 图片OCR识别异常!")
+        print(f"📷 图片URL: {request.image_url}")
+        print(f"📋 异常信息: {str(e)}")
+        print("=" * 60)
+        
+        return ImageOCRResponse(
+            success=False,
+            error=f"服务器内部错误: {str(e)}",
+            message="图片文字识别异常"
+        )
 
 @app.get("/health")
 async def health_check():

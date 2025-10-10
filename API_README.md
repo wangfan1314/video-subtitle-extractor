@@ -30,7 +30,7 @@ python start_service.py
 
 #### 方式三：自定义参数启动
 ```bash
-python start_service.py --host 127.0.0.1 --port 8080 --workers 2
+python start_service.py --host 0.0.0.0 --port 8080 --workers 2
 ```
 
 服务启动后，你可以通过以下地址访问：
@@ -122,12 +122,84 @@ python start_service.py --host 127.0.0.1 --port 8080 --workers 2
 
 删除指定的任务记录
 
+### 5. 图片OCR识别
+**POST** `/recognize-image`
+
+识别图片中的文字内容
+
+#### 请求参数
+```json
+{
+  "image_url": "https://example.com/image.jpg",
+  "language": "ch",
+  "confidence_threshold": 0.5
+}
+```
+
+参数说明：
+- `image_url` (必需): 图片URL地址，支持HTTP/HTTPS
+- `language` (可选): 识别语言，默认为"ch"（中文）
+- `confidence_threshold` (可选): 置信度阈值，0-1之间，默认为0.5
+
+#### 响应
+```json
+{
+  "success": true,
+  "message": "图片文字识别成功",
+  "image_info": {
+    "url": "https://example.com/image.jpg",
+    "width": 800,
+    "height": 400
+  },
+  "ocr_results": [
+    {
+      "text": "识别到的文字",
+      "confidence": 0.95,
+      "bbox": {
+        "left": 100,
+        "top": 50,
+        "right": 200,
+        "bottom": 80,
+        "width": 100,
+        "height": 30
+      },
+      "position": {
+        "x": 150,
+        "y": 65
+      }
+    }
+  ],
+  "text_count": 1,
+  "all_text": "识别到的文字",
+  "language": "ch",
+  "confidence_threshold": 0.5
+}
+```
+
 ## 客户端调用示例
 
 ### Python客户端
+
+#### 视频字幕提取
 使用提供的客户端脚本：
 ```bash
 python client_example.py --video /path/to/video.mp4 --area 1350 1600 0 1080 --language ch --mode fast
+```
+
+#### 图片OCR识别
+使用图片OCR客户端脚本：
+```bash
+# 识别中文图片
+python image_ocr_client.py --image-url "https://example.com/chinese_image.jpg"
+
+# 识别英文图片
+python image_ocr_client.py --image-url "https://example.com/english_image.jpg" --language en
+
+# 设置置信度阈值
+python image_ocr_client.py --image-url "https://example.com/image.jpg" --confidence 0.7
+
+# 保存结果到JSON文件
+python image_ocr_client.py --image-url "https://example.com/image.jpg" --output-json result.json
 ```
 
 ### curl调用示例
@@ -158,6 +230,15 @@ curl "http://localhost:8000/status/your-task-id"
 
 # 健康检查
 curl "http://localhost:8000/health"
+
+# 图片OCR识别
+curl -X POST "http://localhost:8000/recognize-image" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "image_url": "https://example.com/image.jpg",
+    "language": "ch",
+    "confidence_threshold": 0.5
+  }'
 ```
 
 ### JavaScript/前端调用示例
@@ -202,6 +283,32 @@ const pollStatus = async (taskId) => {
 };
 
 pollStatus(taskId);
+
+// 图片OCR识别
+const recognizeImageText = async (imageUrl, language = 'ch', confidenceThreshold = 0.5) => {
+  const response = await fetch('http://localhost:8000/recognize-image', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      image_url: imageUrl,
+      language: language,
+      confidence_threshold: confidenceThreshold
+    })
+  });
+  
+  return await response.json();
+};
+
+// 使用示例
+const ocrResult = await recognizeImageText('https://example.com/image.jpg', 'ch', 0.5);
+if (ocrResult.success) {
+  console.log('识别成功:', ocrResult.all_text);
+  console.log('详细结果:', ocrResult.ocr_results);
+} else {
+  console.error('识别失败:', ocrResult.error);
+}
 ```
 
 ## 支持的语言
